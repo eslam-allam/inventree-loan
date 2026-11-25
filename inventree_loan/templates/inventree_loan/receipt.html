@@ -46,7 +46,7 @@
                 <tr>
                     <td>{{ item.part.name }}{% if item.part.IPN %}<br><span class="loan-muted">{{ item.part.IPN }}</span>{% endif %}</td>
                     <td>{{ item.stock_item_display }}{% if item.stock_item.serial %}<br><span class="loan-muted">{{ item.stock_item.serial }}</span>{% endif %}</td>
-                    <td>{{ item.quantity }}</td>
+                    <td>{{ item.quantity|floatformat:"-5" }}</td>
                 </tr>
             {% endfor %}
             </tbody>

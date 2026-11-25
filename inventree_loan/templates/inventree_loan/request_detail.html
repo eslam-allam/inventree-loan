@@ -5,7 +5,7 @@
 <div class="loan-page">
     <header class="loan-page-header">
         <div>
-            <p class="loan-eyebrow"><a href="{% url 'plugin:loan:requests' %}">{% trans "Requests" %}</a></p>
+            <p class="loan-breadcrumb"><a href="{% url 'plugin:loan:requests' %}">{% trans "Requests" %}</a></p>
             <h1>{{ request_obj.reference }}</h1>
             <p class="loan-subtitle">
                 {% trans "Requested by" %} <strong>{{ request_obj.requester.get_full_name|default:request_obj.requester.username }}</strong>
@@ -32,7 +32,7 @@
 
     <div class="loan-grid loan-grid-2">
         <section class="loan-panel">
-            <div class="loan-panel-header"><div><h2>{% trans "Requested items" %}</h2><p class="loan-muted">{{ request_obj.item_count }} {% trans "line(s)" %}</p></div></div>
+            <div class="loan-panel-header"><div><h2>{% trans "Requested items" %}</h2><p class="loan-muted">{% blocktrans count counter=request_obj.item_count %}{{ counter }} line{% plural %}{{ counter }} lines{% endblocktrans %}</p></div></div>
             <div class="loan-table-wrap">
                 <table class="loan-table">
                     <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Qty" %}</th><th scope="col">{% trans "Notes" %}</th></tr></thead>
@@ -41,7 +41,7 @@
                         <tr>
                             <td><strong>{{ line.part.name }}</strong>{% if line.part.IPN %}<div class="loan-muted">{{ line.part.IPN }}</div>{% endif %}</td>
                             <td>{% if line.stock_item %}{{ line.stock_item }}{% else %}<span class="loan-muted">{% trans "Any available" %}</span>{% endif %}</td>
-                            <td>{{ line.quantity }}</td>
+                            <td>{{ line.quantity|floatformat:"-5" }}</td>
                             <td class="loan-muted">{{ line.notes|default:"—" }}</td>
                         </tr>
                     {% endfor %}

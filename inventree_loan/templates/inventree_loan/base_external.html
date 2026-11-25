@@ -5,31 +5,40 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token }}">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#edf1ec" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#111a15" media="(prefers-color-scheme: dark)">
     <title>{% block title %}{% trans "Request a loan" %}{% endblock %} · InvenTree</title>
     <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
+    <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'public.css' %}">
 </head>
 <body class="loan-body loan-external" data-page="{{ page|default:'' }}">
 <a class="loan-skip-link" href="#loan-main">{% trans "Skip to content" %}</a>
 
 <header class="ext-header">
     <div class="ext-header-inner">
-        <a class="ext-brand" href="{% url 'plugin:loan:request_new' %}">
-            <img class="ext-logo" src="{% static 'web/inventree.svg' %}" alt="InvenTree">
-            <span>{% trans "Loan request" %}</span>
+        <a class="ext-brand" href="{% if can_request %}{% url 'plugin:loan:request_new' %}{% else %}{% url 'plugin:loan:requests' %}{% endif %}">
+            <img class="ext-logo" src="{% static 'web/inventree.svg' %}" alt="InvenTree" width="28" height="28" fetchpriority="high">
+            <span class="ext-brand-text">
+                <span class="ext-brand-name">{% trans "Loan desk" %}</span>
+                <span class="ext-brand-sub">{% trans "Equipment and parts checkout" %}</span>
+            </span>
         </a>
 
         <nav class="ext-nav" aria-label="{% trans 'Loan request navigation' %}">
-            <a class="ext-nav-link {% if page == 'request-new' %}is-active{% endif %}" href="{% url 'plugin:loan:request_new' %}">{% trans "New request" %}</a>
+            {% if can_request %}
+                <a class="ext-nav-link {% if page == 'request-new' %}is-active{% endif %}" href="{% url 'plugin:loan:request_new' %}">{% trans "New request" %}</a>
+            {% endif %}
             <a class="ext-nav-link {% if page == 'requests' or page == 'request-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:requests' %}">{% trans "My requests" %}</a>
             <a class="ext-nav-link {% if page == 'loans' or page == 'loan-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}">{% trans "My loans" %}</a>
         </nav>
 
         <div class="ext-user">
             {% if is_manager %}
-                <a class="loan-btn loan-btn-sm" href="{% url 'plugin:loan:dashboard' %}">{% trans "Loan desk" %}</a>
+                <a class="loan-btn loan-btn-sm" href="{% url 'plugin:loan:dashboard' %}">{% trans "Staff console" %}</a>
             {% endif %}
-            <span class="loan-muted">{{ request.user.get_full_name|default:request.user.username }}</span>
-            <a class="loan-link-muted" href="/web/">{% trans "InvenTree" %}</a>
+            <span class="ext-user-name">{{ request.user.get_full_name|default:request.user.username }}</span>
+            <a class="ext-home-link" href="/web/" translate="no">InvenTree</a>
         </div>
     </div>
 </header>
@@ -47,6 +56,13 @@
 <main id="loan-main" class="loan-main" tabindex="-1">
     {% block content %}{% endblock %}
 </main>
+
+<footer class="ext-footer">
+    <div class="ext-footer-inner">
+        <span><strong>{% trans "Loan desk" %}</strong> · <span translate="no">InvenTree</span></span>
+        <span>{% trans "Equipment and parts checkout" %}</span>
+    </div>
+</footer>
 
 {% include "inventree_loan/_js_config.html" %}
 <script src="{% url 'plugin:loan:asset' 'loan.js' %}" defer></script>

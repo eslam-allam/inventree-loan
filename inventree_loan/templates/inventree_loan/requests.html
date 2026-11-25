@@ -5,9 +5,8 @@
 <div class="loan-page">
     <header class="loan-page-header">
         <div>
-            <p class="loan-eyebrow">{% trans "Requests" %}</p>
             <h1>{% if is_manager %}{% trans "Loan requests" %}{% else %}{% trans "My requests" %}{% endif %}</h1>
-            <p class="loan-subtitle">{% if is_manager %}{% trans "Approve, reject, and prepare requests for pickup." %}{% else %}{% trans "Track your requests and their decisions." %}{% endif %}</p>
+            <p class="loan-subtitle">{% if is_manager %}{% trans "Approve, reject and prepare requests for pickup." %}{% else %}{% trans "Follow each request from review to pickup." %}{% endif %}</p>
         </div>
         <div class="loan-page-actions">
             {% if can_request %}<a class="loan-btn loan-btn-primary" href="{% url 'plugin:loan:request_new' %}"><i class="fas fa-plus" aria-hidden="true"></i> {% trans "New request" %}</a>{% endif %}
@@ -71,9 +70,13 @@
         {% else %}
             <div class="loan-empty loan-empty-large">
                 <i class="fas fa-clipboard-list" aria-hidden="true"></i>
-                <strong>{% trans "No requests found" %}</strong>
-                <span>{% trans "Try a different filter or create a new request." %}</span>
-                {% if can_request %}<a class="loan-btn loan-btn-primary" href="{% url 'plugin:loan:request_new' %}">{% trans "New request" %}</a>{% endif %}
+                {% if status_filter %}
+                    <strong>{% trans "No requests match this filter" %}</strong>
+                    <span>{% trans "Try a different status." %}</span>
+                {% else %}
+                    <strong>{% trans "No requests yet" %}</strong>
+                    <span>{% trans "Start a request and it will appear here." %}</span>
+                {% endif %}
             </div>
         {% endif %}
     </section>

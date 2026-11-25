@@ -11,6 +11,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import FileResponse, Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.http import http_date
 
 from .config import get_native_management_url, get_setting
 from .permissions import (
@@ -59,8 +60,12 @@ def asset(request, filename):
         raise Http404
 
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    stat = path.stat()
     response = FileResponse(path.open("rb"), content_type=content_type)
-    response["Cache-Control"] = "private, max-age=300"
+    # Plugin assets must not be served stale after an upgrade or an editable
+    # install changes on disk.  Revalidate on every page load instead.
+    response["Cache-Control"] = "private, no-cache, must-revalidate"
+    response["Last-Modified"] = http_date(stat.st_mtime)
     return response
 
 

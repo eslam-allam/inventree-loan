@@ -38,7 +38,7 @@
                                 <tr>
                                     <td><strong>{{ line.part.name }}</strong>{% if line.part.IPN %}<div class="loan-muted">{{ line.part.IPN }}</div>{% endif %}</td>
                                     <td>{% if line.stock_item %}{{ line.stock_item }}{% else %}<span class="loan-muted">{% trans "Auto-select available stock" %}</span>{% endif %}</td>
-                                    <td>{{ line.quantity }}</td>
+                                    <td>{{ line.quantity|floatformat:"-5" }}</td>
                                 </tr>
                             {% endfor %}
                             </tbody>

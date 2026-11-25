@@ -344,6 +344,13 @@
         const successBox = $('[data-request-success]');
         const state = { lines: [] };
 
+        // Do not silently discard a request that already has items in it.
+        window.addEventListener('beforeunload', (event) => {
+            if (!state.lines.length) return;
+            event.preventDefault();
+            event.returnValue = '';
+        });
+
         const addPart = (part, quantity = 1) => {
             const existing = state.lines.find((line) => !line.stock_item_id && line.part_id === part.pk);
             if (existing) {
@@ -483,10 +490,15 @@
             const acknowledged = $('#responsibility_ack')?.checked;
             const neededBy = $('#needed_by')?.value;
             const returnBy = $('#return_by')?.value;
-            if (!state.lines.length) return showError(errorBox, 'Add at least one item to the request.');
-            if (!purpose) return showError(errorBox, 'Please describe the purpose of the loan.');
-            if (!acknowledged) return showError(errorBox, 'Please accept the responsibility statement.');
-            if (neededBy && returnBy && returnBy < neededBy) return showError(errorBox, 'The return date must be on or after the pickup date.');
+            const fail = (message, field) => {
+                showError(errorBox, message);
+                field?.focus();
+                return undefined;
+            };
+            if (!state.lines.length) return fail('Add at least one item to the request.', searchInput || scanInput);
+            if (!purpose) return fail('Describe what you will use the items for.', $('#purpose'));
+            if (!acknowledged) return fail('Accept the responsibility statement to continue.', $('#responsibility_ack'));
+            if (neededBy && returnBy && returnBy < neededBy) return fail('Choose a return date on or after the pickup date.', $('#return_by'));
 
             const payload = {
                 lines: state.lines.map((line) => ({
@@ -502,13 +514,13 @@
                 project: $('#project')?.value.trim() || '',
                 responsibility_ack: Boolean(acknowledged)
             };
-            setBusy(submit, true, 'Submitting…');
+            setBusy(submit, true, 'Sending…');
             try {
                 const created = await api(L.api.requests, { method: 'POST', body: JSON.stringify(payload) });
                 state.lines = [];
                 renderCart();
-                showSuccess(successBox, `Request <strong>${esc(created.reference)}</strong> submitted. <a href="${L.urls.requests}">View my requests</a>.`);
-                submit.innerHTML = 'Request submitted';
+                showSuccess(successBox, `Request <strong>${esc(created.reference)}</strong> sent. <a href="${L.urls.requests}">View my requests</a>.`);
+                submit.innerHTML = 'Request sent';
                 submit.disabled = true;
             } catch (error) {
                 setBusy(submit, false);

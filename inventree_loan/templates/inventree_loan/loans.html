@@ -5,9 +5,8 @@
 <div class="loan-page">
     <header class="loan-page-header">
         <div>
-            <p class="loan-eyebrow">{% trans "Loans" %}</p>
             <h1>{% if is_manager %}{% trans "All loans" %}{% else %}{% trans "My loans" %}{% endif %}</h1>
-            <p class="loan-subtitle">{% trans "Due dates, returned items and overdue loans in one place." %}</p>
+            <p class="loan-subtitle">{% trans "Everything you have borrowed, with due dates and return status." %}</p>
         </div>
         <div class="loan-page-actions">
             {% if is_desk %}<a class="loan-btn" href="{% url 'plugin:loan:checkout' %}"><i class="fas fa-barcode" aria-hidden="true"></i> {% trans "Hand out" %}</a>{% endif %}
@@ -63,8 +62,13 @@
         {% else %}
             <div class="loan-empty loan-empty-large">
                 <i class="fas fa-box-open" aria-hidden="true"></i>
-                <strong>{% trans "No loans found" %}</strong>
-                <span>{% trans "Loans will appear here once items are handed out." %}</span>
+                {% if status_filter %}
+                    <strong>{% trans "No loans match this filter" %}</strong>
+                    <span>{% trans "Try a different status." %}</span>
+                {% else %}
+                    <strong>{% trans "No loans yet" %}</strong>
+                    <span>{% trans "Loans will appear here once items are handed out." %}</span>
+                {% endif %}
                 {% if is_desk %}<a class="loan-btn loan-btn-primary" href="{% url 'plugin:loan:checkout' %}">{% trans "Hand out an item" %}</a>{% endif %}
             </div>
         {% endif %}

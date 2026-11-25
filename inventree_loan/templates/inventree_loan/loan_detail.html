@@ -5,7 +5,7 @@
 <div class="loan-page" data-loan-id="{{ loan.pk }}">
     <header class="loan-page-header">
         <div>
-            <p class="loan-eyebrow"><a href="{% url 'plugin:loan:loans' %}">{% trans "Loans" %}</a></p>
+            <p class="loan-breadcrumb"><a href="{% url 'plugin:loan:loans' %}">{% trans "Loans" %}</a></p>
             <h1>{{ loan.reference }}</h1>
             <p class="loan-subtitle">
                 {{ loan.borrower.get_full_name|default:loan.borrower.username }} · {% trans "issued" %} {{ loan.issued_at|date:"M j, Y" }}
@@ -59,7 +59,7 @@
     </div>
 
     <section class="loan-panel">
-        <div class="loan-panel-header"><div><h2>{% trans "Items" %}</h2><p class="loan-muted">{{ loan.item_count }} {% trans "line(s)" %}</p></div></div>
+        <div class="loan-panel-header"><div><h2>{% trans "Items" %}</h2><p class="loan-muted">{% blocktrans count counter=loan.item_count %}{{ counter }} line{% plural %}{{ counter }} lines{% endblocktrans %}</p></div></div>
         <div class="loan-table-wrap">
             <table class="loan-table">
                 <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Qty" %}</th><th scope="col">{% trans "Returned" %}</th><th scope="col">{% trans "Remaining" %}</th><th scope="col">{% trans "Status" %}</th>{% if is_desk %}<th scope="col"><span class="loan-sr-only">{% trans "Actions" %}</span></th>{% endif %}</tr></thead>
@@ -68,9 +68,9 @@
                     <tr class="{% if item.lost %}loan-row-danger{% endif %}">
                         <td><strong>{{ item.part.name }}</strong>{% if item.part.IPN %}<div class="loan-muted">{{ item.part.IPN }}</div>{% endif %}</td>
                         <td>{{ item.stock_item_display }}</td>
-                        <td>{{ item.quantity }}</td>
-                        <td>{{ item.returned_quantity }}</td>
-                        <td>{{ item.remaining_quantity }}</td>
+                        <td>{{ item.quantity|floatformat:"-5" }}</td>
+                        <td>{{ item.returned_quantity|floatformat:"-5" }}</td>
+                        <td>{{ item.remaining_quantity|floatformat:"-5" }}</td>
                         <td>
                             {% if item.lost %}
                                 <span class="loan-badge loan-badge-dark"><i class="fas fa-circle-question" aria-hidden="true"></i> {% trans "Lost" %}</span>
