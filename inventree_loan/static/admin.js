@@ -1013,7 +1013,43 @@ function HistoryPanel({ context }) {
 }
 
 function AdminConsole({ context }) {
+    const api = context.api;
     const [tab, setTab] = useState('requests');
+    const [access, setAccess] = useState(null);
+    const [accessError, setAccessError] = useState('');
+
+    // The same native page serves loan staff and ordinary requesters.  Read
+    // the role flags from the API so requesters only see their own tabs.
+    useEffect(() => {
+        let active = true;
+        api.get('/plugin/loan/api/stats/')
+            .then((response) => {
+                if (active) setAccess(response.data || {});
+            })
+            .catch((err) => {
+                if (active) setAccessError(errorText(err));
+            });
+        return () => {
+            active = false;
+        };
+    }, [api]);
+
+    const isManager = Boolean(access?.is_manager);
+    const canHandout = Boolean(access?.can_handout);
+    const canManage = Boolean(access?.can_manage_staff);
+    const requestUrl = context.context?.request_url || '/plugin/loan/request/';
+
+    const tabs = [
+        { value: 'requests', label: 'Requests' },
+        { value: 'loans', label: 'Loans' }
+    ];
+    if (canHandout) tabs.push({ value: 'handout', label: 'Handout' });
+    if (canManage) {
+        tabs.push({ value: 'staff', label: 'Staff' });
+        tabs.push({ value: 'setup', label: 'Setup' });
+    }
+    if (isManager) tabs.push({ value: 'history', label: 'History' });
+
     return h(
         M.Stack,
         { gap: 'md' },
@@ -1027,7 +1063,9 @@ function AdminConsole({ context }) {
                 h(
                     M.Text,
                     { size: 'sm', c: 'dimmed' },
-                    'Approve requests, hand out items and process returns.'
+                    isManager
+                        ? 'Approve requests, hand out items and process returns.'
+                        : 'Track your loan requests and borrowed items.'
                 )
             ),
             h(
@@ -1036,100 +1074,140 @@ function AdminConsole({ context }) {
                 h(M.Badge, { variant: 'light' }, 'InvenTree'),
                 h(
                     M.Anchor,
-                    { href: context.context?.request_url, target: '_blank' },
+                    { href: requestUrl, target: '_blank' },
                     'Open request form'
                 )
             )
         ),
+        h(ErrorAlert, { error: accessError }),
         h(
             M.Tabs,
             { value: tab, onChange: setTab, keepMounted: false },
             h(
                 M.Tabs.List,
                 null,
-                h(M.Tabs.Tab, { value: 'requests' }, 'Requests'),
-                h(M.Tabs.Tab, { value: 'loans' }, 'Loans'),
-                h(M.Tabs.Tab, { value: 'handout' }, 'Handout'),
-                h(M.Tabs.Tab, { value: 'staff' }, 'Staff'),
-                h(M.Tabs.Tab, { value: 'setup' }, 'Setup'),
-                h(M.Tabs.Tab, { value: 'history' }, 'History')
+                ...tabs.map((item) =>
+                    h(M.Tabs.Tab, { value: item.value, key: item.value }, item.label)
+                )
             ),
             h(M.Tabs.Panel, { value: 'requests', pt: 'md' }, h(RequestsPanel, { context })),
             h(M.Tabs.Panel, { value: 'loans', pt: 'md' }, h(LoansPanel, { context })),
-            h(M.Tabs.Panel, { value: 'handout', pt: 'md' }, h(HandoutPanel, { context })),
-            h(M.Tabs.Panel, { value: 'staff', pt: 'md' }, h(StaffPanel, { context })),
-            h(M.Tabs.Panel, { value: 'setup', pt: 'md' }, h(SetupPanel, { context })),
-            h(M.Tabs.Panel, { value: 'history', pt: 'md' }, h(HistoryPanel, { context }))
+            canHandout
+                ? h(M.Tabs.Panel, { value: 'handout', pt: 'md' }, h(HandoutPanel, { context }))
+                : null,
+            canManage
+                ? h(M.Tabs.Panel, { value: 'staff', pt: 'md' }, h(StaffPanel, { context }))
+                : null,
+            canManage
+                ? h(M.Tabs.Panel, { value: 'setup', pt: 'md' }, h(SetupPanel, { context }))
+                : null,
+            isManager
+                ? h(M.Tabs.Panel, { value: 'history', pt: 'md' }, h(HistoryPanel, { context }))
+                : null
         )
     );
 }
 
-export function renderPluginSettings(context) {
-    return h(AdminConsole, { context });
+function withRequestFallback(context) {
+    // InvenTree 1.6+ passes the full plugin context, with the server-side
+    // context nested under `context.context`.  Native routes do not receive
+    // server context, so provide a sensible default for the request link.
+    const data = context?.context || {};
+    return {
+        ...context,
+        context: {
+            ...data,
+            request_url: data.request_url || '/plugin/loan/request/'
+        }
+    };
 }
 
+/**
+ * Entry point for the native plugin settings page.
+ *
+ * InvenTree renders this inside the standard plugin administration drawer.
+ */
+export function renderPluginSettings(context) {
+    return h(AdminConsole, { context: withRequestFallback(context) });
+}
+
+/**
+ * Entry point for the native InvenTree route (/plugin/loan/management).
+ *
+ * This is what the top-level "Loans" navigation tab opens.  It receives the
+ * normal InvenTree plugin context (React Router navigation, axios client,
+ * user state, theme, ...), so the page behaves like any core InvenTree page.
+ */
+export function renderLoanPage(context) {
+    return h(AdminConsole, { context: withRequestFallback(context) });
+}
+
+/**
+ * Entry point for the spotlight (Ctrl/Cmd+K) action.
+ */
+export function performLoanSpotlightAction(context) {
+    const url = context?.context?.url || '/plugin/loan/management';
+    if (context?.navigate) {
+        context.navigate(url);
+    }
+}
+
+/**
+ * Entry point for the dashboard card.
+ */
 export function renderLoanDashboardItem(context) {
     return h(LoanDashboardCard, { context });
 }
 
 function LoanDashboardCard({ context }) {
     const data = context?.context || {};
-    const [opened, setOpened] = useState(false);
+    const openDesk = () => {
+        if (context?.navigate) {
+            context.navigate('/plugin/loan/management');
+        } else {
+            window.location.href = data.management_url || '/plugin/loan/management';
+        }
+    };
 
     return h(
-        React.Fragment,
-        null,
+        M.Card,
+        { withBorder: true, padding: 'md', h: '100%' },
         h(
-            M.Card,
-            { withBorder: true, padding: 'md', h: '100%' },
+            M.Stack,
+            { gap: 'sm', h: '100%', justify: 'space-between' },
             h(
                 M.Stack,
-                { gap: 'sm', h: '100%', justify: 'space-between' },
+                { gap: 4 },
+                h(M.Text, { fw: 700 }, 'Loans'),
                 h(
-                    M.Stack,
-                    { gap: 4 },
-                    h(M.Text, { fw: 700 }, 'Loans'),
-                    h(
-                        M.Text,
-                        { size: 'sm', c: 'dimmed' },
-                        data.is_manager
-                            ? 'Request items or open the loan management console.'
-                            : 'Request an item and track your loan status.'
-                    )
-                ),
-                h(
-                    M.Group,
-                    { grow: true },
-                    h(
-                        M.Button,
-                        {
-                            component: 'a',
-                            href: data.request_url,
-                            variant: 'light',
-                            size: 'xs'
-                        },
-                        'Request a loan'
-                    ),
+                    M.Text,
+                    { size: 'sm', c: 'dimmed' },
                     data.is_manager
-                        ? h(
-                              M.Button,
-                              { size: 'xs', onClick: () => setOpened(true) },
-                              'Open loan desk'
-                          )
-                        : null
+                        ? 'Request items or open the loan management console.'
+                        : 'Request an item and track your loan status.'
                 )
+            ),
+            h(
+                M.Group,
+                { grow: true },
+                h(
+                    M.Button,
+                    {
+                        component: 'a',
+                        href: data.request_url,
+                        variant: 'light',
+                        size: 'xs'
+                    },
+                    'Request a loan'
+                ),
+                data.is_manager
+                    ? h(
+                          M.Button,
+                          { size: 'xs', onClick: openDesk },
+                          'Open loan desk'
+                      )
+                    : null
             )
-        ),
-        h(
-            M.Modal,
-            {
-                opened,
-                onClose: () => setOpened(false),
-                fullScreen: true,
-                title: 'Loan Manager',
-                padding: 'md'
-            },
-            h(M.Container, { size: 'xl', py: 'md' }, opened ? h(AdminConsole, { context }) : null)
         )
     );
 }

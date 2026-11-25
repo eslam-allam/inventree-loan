@@ -8,7 +8,6 @@ from django.utils.translation import gettext_lazy as _
 from plugin import InvenTreePlugin
 from plugin.mixins import (
     AppMixin,
-    NavigationMixin,
     ScheduleMixin,
     SettingsMixin,
     UrlsMixin,
@@ -24,7 +23,6 @@ class InvenTreeLoanPlugin(
     UrlsMixin,
     SettingsMixin,
     ScheduleMixin,
-    NavigationMixin,
     UserInterfaceMixin,
     ValidationMixin,
     InvenTreePlugin,
@@ -43,28 +41,24 @@ class InvenTreeLoanPlugin(
     WEBSITE = "https://github.com/inventree/inventree-loan"
     LICENSE = "MIT"
 
-    MIN_VERSION = "1.5.0"
-    MAX_VERSION = "1.5.99"
+    # Native plugin routes are available from InvenTree 1.6 onwards.  The
+    # navigation tab uses that mechanism so the loan console lives inside the
+    # normal InvenTree router, just like the Stock or Parts pages.
+    MIN_VERSION = "1.6.0"
+    MAX_VERSION = "1.7.99"
 
     # Native React / Mantine admin UI, rendered inside the standard InvenTree
     # plugin administration page.
     ADMIN_SOURCE = "admin.js:renderPluginSettings"
 
-    NAVIGATION = [
-        {
-            "name": _("Loans"),
-            "link": "plugin:loan:dashboard",
-            "icon": "ti ti-box",
-        }
-    ]
-    NAVIGATION_TAB_NAME = _("Loans")
-    NAVIGATION_TAB_ICON = "ti ti-box"
-
+    # Daily task.  InvenTree validates SCHEDULED_TASKS strictly: an interval
+    # ('I') task requires a 'minutes' value, and any other schedule type must
+    # not use the old 'hours' key.  An invalid entry prevents the whole plugin
+    # from being registered.
     SCHEDULED_TASKS = {
         "due_reminders": {
             "func": "send_due_reminders",
-            "schedule": "I",
-            "hours": 24,
+            "schedule": "D",
         }
     }
 
@@ -225,15 +219,43 @@ class InvenTreeLoanPlugin(
         return urlpatterns
 
     def get_ui_navigation_items(self, request, context, **kwargs):
-        """Add a Loans tab which opens the native plugin administration page."""
-        from .config import get_admin_console_url
+        """Add a native Loans tab, rendered inside the InvenTree router.
+
+        InvenTree 1.6+ exposes plugin routes under ``/plugin/<slug>/...`` in
+        the frontend router.  The navigation item links there instead of to
+        the admin/plugin settings list.
+        """
+        if not request.user.is_authenticated:
+            return []
+
+        from .config import get_native_management_url
 
         return [
             {
                 "key": "loan-manager",
                 "title": str(_("Loans")),
                 "icon": "ti:box:outline",
-                "options": {"url": get_admin_console_url()},
+                "options": {"url": get_native_management_url(relative=True)},
+            }
+        ]
+
+    def get_ui_routes(self, request, context, **kwargs):
+        """Expose the loan console as a native InvenTree page.
+
+        The frontend mounts this at ``/web/plugin/loan/management`` and renders
+        ``renderLoanPage`` from ``admin.js``.
+        """
+        if not request.user.is_authenticated:
+            return []
+
+        return [
+            {
+                "key": "loan-management",
+                "title": str(_("Loans")),
+                "description": str(_("Loan requests, handouts, returns and history.")),
+                "icon": "ti:box:outline",
+                "source": self._asset_source("admin.js", "renderLoanPage"),
+                "options": {"path": "management"},
             }
         ]
 
@@ -242,11 +264,13 @@ class InvenTreeLoanPlugin(
         if not request.user.is_authenticated:
             return []
 
-        from .config import get_admin_console_url
+        from .config import get_native_management_url
         from .permissions import can_view_all
 
         try:
             request_url = reverse("plugin:loan:request_new")
+            requests_url = reverse("plugin:loan:requests")
+            loans_url = reverse("plugin:loan:loans")
         except Exception:  # pragma: no cover
             return []
 
@@ -258,20 +282,67 @@ class InvenTreeLoanPlugin(
                     _("Request a loan or open the loan management console.")
                 ),
                 "icon": "ti:box:outline",
-                "source": self.plugin_static_file(
-                    "admin.js:renderLoanDashboardItem"
+                "source": self._asset_source(
+                    "admin.js", "renderLoanDashboardItem"
                 ),
                 "context": {
                     "is_manager": can_view_all(request.user),
                     "request_url": request_url,
-                    "admin_url": get_admin_console_url(),
+                    "requests_url": requests_url,
+                    "loans_url": loans_url,
+                    "management_url": get_native_management_url(),
                 },
                 "options": {"width": 3, "height": 2},
             }
         ]
 
+    def get_ui_spotlight_actions(self, request, context, **kwargs):
+        """Add a spotlight action which opens the native loan console."""
+        if not request.user.is_authenticated:
+            return []
+
+        from .config import get_native_management_path
+        from .permissions import can_view_all
+
+        if not can_view_all(request.user):
+            return []
+
+        return [
+            {
+                "key": "loan-manager-action",
+                "title": str(_("Open Loan Manager")),
+                "description": str(_("Requests, handouts, returns and history.")),
+                "icon": "ti:box:outline",
+                "source": self._asset_source(
+                    "admin.js", "performLoanSpotlightAction"
+                ),
+                "context": {"url": get_native_management_path()},
+            }
+        ]
+
+    def _asset_source(self, filename: str, function: str) -> str:
+        """Return a browser-loadable URL for a bundled plugin asset.
+
+        Serving the file through a plugin URL avoids the extra
+        ``collectplugins`` step and removes the intermittent "static file not
+        found" failures seen when the collected asset is stale or missing.
+        """
+        try:
+            url = reverse("plugin:loan:asset", args=[filename])
+        except Exception:  # pragma: no cover - URLs not ready yet
+            url = self.plugin_static_file(filename, check_exists=False)
+        return f"{url}:{function}"
+
+    def get_admin_source(self) -> str | None:
+        """Native plugin-settings JavaScript module."""
+        if not self.ADMIN_SOURCE:
+            return None
+        filename, function = self.ADMIN_SOURCE.split(":", 1)
+        return self._asset_source(filename, function or "renderPluginSettings")
+
     def get_admin_context(self) -> dict:
         """Context passed to the native plugin administration UI."""
+        from .config import get_native_management_url
         from .services.setup import (
             get_loan_location,
             get_on_loan_status,
@@ -287,6 +358,9 @@ class InvenTreeLoanPlugin(
             "on_loan_status": getattr(status, "label", ""),
             "on_loan_status_key": getattr(status, "key", None),
             "request_url": reverse("plugin:loan:request_new"),
+            "requests_url": reverse("plugin:loan:requests"),
+            "loans_url": reverse("plugin:loan:loans"),
+            "management_url": get_native_management_url(),
         }
 
     def send_due_reminders(self):

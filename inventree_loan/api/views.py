@@ -34,6 +34,7 @@ from ..permissions import (
     can_manage_staff,
     can_request,
     can_view_all,
+    get_user_role,
 )
 from ..selectors import (
     loan_with_items,
@@ -511,6 +512,11 @@ class StatsView(LoanAPIView):
                 status="returned", returned_at__gte=month_start
             ).count(),
             "is_manager": can_view_all(request.user),
+            "can_approve": can_approve(request.user),
+            "can_handout": can_handout(request.user),
+            "can_manage_staff": can_manage_staff(request.user),
+            "can_request": can_request(request.user),
+            "role": get_user_role(request.user),
         })
 
 

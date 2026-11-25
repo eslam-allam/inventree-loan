@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import mimetypes
 from datetime import timedelta
+from pathlib import Path
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.http import FileResponse, Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.utils import timezone
 
-from .config import get_admin_console_url, get_setting
+from .config import get_native_management_url, get_setting
 from .permissions import (
     can_handout,
     can_manage_staff,
@@ -26,11 +28,40 @@ from .selectors import (
     visible_requests,
 )
 from .services.setup import is_configured
+from .utils import local_today
+
+
+#: Directory containing the plugin's bundled static assets.
+_ASSET_DIR = Path(__file__).resolve().parent / "static"
 
 
 def _standard_admin_url() -> str:
-    """Return the native InvenTree plugin administration page URL."""
-    return get_admin_console_url()
+    """Return the native InvenTree loan management page URL."""
+    return get_native_management_url()
+
+
+@login_required
+def asset(request, filename):
+    """Serve a bundled plugin asset directly from the package.
+
+    InvenTree normally serves plugin static files through ``collectplugins``.
+    Serving them from the plugin's own URL avoids stale or missing collected
+    copies (which previously caused the settings and management pages to load
+    intermittently).  Only files directly inside the plugin ``static`` folder
+    are allowed.
+    """
+    name = Path(filename).name
+    if name != filename or name.startswith("."):
+        raise Http404
+
+    path = _ASSET_DIR / name
+    if not path.is_file():
+        raise Http404
+
+    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    response = FileResponse(path.open("rb"), content_type=content_type)
+    response["Cache-Control"] = "private, max-age=300"
+    return response
 
 
 def _base_context(request, page: str, **extra) -> dict:
@@ -68,7 +99,7 @@ def request_new(request):
     if not can_request(request.user):
         raise PermissionDenied("You do not have permission to request loans")
 
-    today = timezone.localdate()
+    today = local_today()
     default_return = today + timedelta(
         days=int(get_setting("LOAN_DURATION_DAYS", 14) or 14)
     )

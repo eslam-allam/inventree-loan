@@ -21,6 +21,7 @@ from ..models import (
     LoanRequestStatus,
 )
 from ..permissions import can_request
+from ..utils import local_today
 from .notifications import notify_request_decided, notify_request_submitted
 
 
@@ -152,7 +153,7 @@ def catalog_parts(search: str = "", limit: int = 20) -> list[dict]:
 
 
 def _validate_dates(needed_by, return_by):
-    today = timezone.localdate()
+    today = local_today()
     needed_by = needed_by or today
     if needed_by < today:
         raise ValidationError({"needed_by": _("Pickup date cannot be in the past")})

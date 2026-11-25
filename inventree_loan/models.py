@@ -11,6 +11,8 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from .utils import local_today
+
 
 class LoanRequestStatus(models.TextChoices):
     """Lifecycle states for a loan request."""
@@ -156,7 +158,7 @@ class LoanRequest(LoanBaseModel):
         """Assign a human-readable reference after the first save."""
         super().save(*args, **kwargs)
         if not self.reference:
-            year = timezone.localdate().year
+            year = local_today().year
             self.reference = f"{self.REFERENCE_PREFIX}-{year}-{self.pk:04d}"
             type(self).objects.filter(pk=self.pk).update(reference=self.reference)
 
@@ -336,7 +338,7 @@ class Loan(LoanBaseModel):
         """Assign a human-readable reference after the first save."""
         super().save(*args, **kwargs)
         if not self.reference:
-            year = timezone.localdate().year
+            year = local_today().year
             self.reference = f"{self.REFERENCE_PREFIX}-{year}-{self.pk:05d}"
             type(self).objects.filter(pk=self.pk).update(reference=self.reference)
 

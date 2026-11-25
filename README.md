@@ -1,9 +1,9 @@
 # InvenTree Loan Manager
 
-A loan and return management plugin for **InvenTree 1.5.x**. It adds a complete
-request → approval → handout → return workflow with audit history, barcode/QR
-support, due-date reminders, and a role-aware interface for requesters and loan
-desk staff.
+A loan and return management plugin for **InvenTree 1.6+** (developed and tested
+against InvenTree 1.7.4). It adds a complete request → approval → handout →
+return workflow with audit history, barcode/QR support, due-date reminders, and
+a role-aware interface for requesters and loan desk staff.
 
 ## Features
 
@@ -30,10 +30,19 @@ desk staff.
 
 ## Requirements
 
-- InvenTree **1.5.x** (`MIN_VERSION = 1.5.0`, `MAX_VERSION = 1.5.99`)
+- InvenTree **1.6+** (`MIN_VERSION = 1.6.0`, `MAX_VERSION = 1.7.99`)
+  - InvenTree 1.5.x does not support plugin-defined React routes, so the native
+    **Loans** tab requires an upgrade to 1.6 or newer.
 - Python 3.10+
-- `ENABLE_PLUGINS_APP` and `ENABLE_PLUGINS_URL` must be enabled
+- The global settings `ENABLE_PLUGINS_APP`, `ENABLE_PLUGINS_URL`, and
+  `ENABLE_PLUGINS_INTERFACE` must be enabled
+  - `ENABLE_PLUGINS_APP` is required for the plugin's models and migrations.
+  - `ENABLE_PLUGINS_INTERFACE` is required for the **Loans** tab and native page.
 - Optional for camera scanning: a browser with `BarcodeDetector` support
+
+> **Upgrading from 1.5.x:** enable `ENABLE_PLUGINS_APP` before restarting. Without
+> it the plugin can appear in the list but its Django app, tables, and URLs are
+> never registered, which produces the intermittent empty/broken pages.
 
 ## Installation
 
@@ -64,17 +73,15 @@ editable install in a mounted plugin directory and record it in
 -e /home/inventree/data/plugins/inventree-loan
 ```
 
-After changing static assets (the JavaScript UI or CSS), collect them and restart
-both the server and the background worker:
+Plugin JavaScript, CSS, and templates are served directly from the installed
+package through the plugin's own URL (`/plugin/loan/assets/...`). They therefore
+do not depend on `collectplugins` and are not left stale by the static-file
+cache. Python and template changes need a restart because plugins are discovered
+at startup:
 
 ```bash
-docker exec -w /home/inventree/src/backend/InvenTree inventree-server \
-    python manage.py collectplugins
 docker restart inventree-server inventree-worker
 ```
-
-Python and template changes only need the restart. Plugins are discovered at
-startup, so a restart is required after any plugin code change.
 
 ### Database migration
 
@@ -93,22 +100,26 @@ python manage.py migrate
 
 ## Using the plugin
 
-The plugin adds a **Loans** item to the InvenTree navigation bar and a **Loans**
-card to the dashboard widget list.
+The plugin adds a **Loans** tab to the InvenTree navigation bar, a **Loans** card
+to the dashboard widget list, and a **Loan Manager** spotlight action.
 
-- **Loans (navigation)** opens the native InvenTree Plugins page filtered to
-  **InvenTreeLoan**. Select the plugin row to open the standard plugin drawer,
-  then expand **Plugin Configuration** to use the Loan Manager console.
+- **Loans (navigation)** opens a native InvenTree page at
+  `/web/plugin/loan/management`. It is rendered inside the normal InvenTree
+  layout, so the header, navigation, theme, and user menu behave exactly like
+  the Stock or Parts pages.
 - **Loans (dashboard widget)** provides a requester shortcut and an
-  **Open loan desk** button that opens the Loan Manager console in a full-screen
-  native Mantine modal.
-- Requesters use the standalone request form at `/plugin/loan/request/` for new
-  requests, their request history, and their own loans.
+  **Open loan desk** button which opens the same native page.
+- Requesters still use the standalone request form at `/plugin/loan/request/`
+  for new requests. That page is intentionally outside the single-page app so
+  it can be linked or embedded on its own.
+- The plugin settings page (Admin Center → Plugins → InvenTree Loan Manager)
+  uses the same native console for initial setup.
 
-The internal console is built from standard InvenTree React and Mantine
-components, so it follows the instance theme, language, and accessibility
-settings. It contains tabs for requests, loans, handout, staff, setup, and
-history.
+The native page adapts to the signed-in user's loan role: requesters see their
+own requests and loans, while loan staff additionally see the handout, staff,
+setup, and audit-history tabs. It is built from standard InvenTree React and
+Mantine components, so it follows the instance theme, language, and
+accessibility settings.
 
 ## Initial setup
 

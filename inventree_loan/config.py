@@ -11,23 +11,48 @@ from typing import Any
 
 PLUGIN_SLUG = "loan"
 
-#: Name used to filter the native plugin list to this plugin.
-ADMIN_SEARCH_TERM = "InvenTreeLoan"
+#: Path of the native plugin route declared by ``get_ui_routes``.
+MANAGEMENT_ROUTE = "management"
+
+
+def get_frontend_base() -> str:
+    """Return the frontend base path, without leading/trailing slashes."""
+    from django.conf import settings
+
+    base = getattr(settings, "FRONTEND_URL_BASE", "web") or "web"
+    if isinstance(base, (list, tuple)):
+        base = base[0] if base else "web"
+    return str(base).strip("/")
+
+
+def get_native_management_path() -> str:
+    """Return the frontend router path of the loan management page.
+
+    This is the path *inside* the InvenTree single-page application, i.e. the
+    value passed to React Router (without the ``/web`` frontend base).
+    """
+    return f"/plugin/{PLUGIN_SLUG}/{MANAGEMENT_ROUTE}"
+
+
+def get_native_management_url(relative: bool = False) -> str:
+    """Return a link to the native InvenTree loan management page.
+
+    Args:
+        relative: When True, return the form expected by the InvenTree header
+            navigation (``plugin/loan/management``, no leading slash - this is
+            the same format used by InvenTree's own sample plugin).  When
+            False, return a full browser URL including the frontend base
+            (``/web/plugin/loan/management``).
+    """
+    path = get_native_management_path()
+    if relative:
+        return path.lstrip("/")
+    return f"/{get_frontend_base()}{path}"
 
 
 def get_admin_console_url() -> str:
-    """Return the native InvenTree page which hosts the loan console.
-
-    InvenTree 1.5.x does not expose a full-page plugin route. The native plugin
-    administration page is the standard host for plugin configuration UIs, so
-    the navigation item links to that page filtered to this plugin. Opening the
-    InvenTreeLoan row shows the standard plugin drawer, including the
-    ``Plugin Configuration`` panel rendered by ``admin.js``.
-    """
-    from django.conf import settings
-
-    base = getattr(settings, "FRONTEND_URL_BASE", "web")
-    return f"/{base}/settings/admin/plugin?search={ADMIN_SEARCH_TERM}"
+    """Backwards-compatible alias for the management page URL."""
+    return get_native_management_url()
 
 
 def get_plugin():

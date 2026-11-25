@@ -32,6 +32,12 @@ def _class_view(module_name: str, attribute: str):
 
 
 urlpatterns = [
+    # Bundled UI assets, served without requiring collectplugins
+    path(
+        "assets/<str:filename>",
+        _function_view("inventree_loan.views", "asset"),
+        name="asset",
+    ),
     # Pages
     path("", _function_view("inventree_loan.views", "dashboard"), name="dashboard"),
     path("request/", _function_view("inventree_loan.views", "request_new"), name="request_new"),

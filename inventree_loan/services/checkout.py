@@ -22,6 +22,7 @@ from ..models import (
     LoanStatus,
 )
 from ..permissions import can_handout
+from ..utils import local_today
 from .notifications import notify_loan_issued
 from .requests import (
     _check_active_loan_limit,
@@ -278,7 +279,7 @@ def checkout_direct(
         requester=borrower,
         status=LoanRequestStatus.APPROVED,
         purpose=(purpose or "").strip(),
-        needed_by=timezone.localdate(),
+        needed_by=local_today(),
         return_by=due.date(),
         notes=(notes or "").strip(),
         responsibility_ack=True,

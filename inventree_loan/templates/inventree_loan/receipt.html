@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% trans "Loan receipt" %} {{ loan.reference }}</title>
-    <link rel="stylesheet" href="{% static 'plugins/loan/loan.css' %}">
+    <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
 </head>
 <body class="loan-receipt-body">
 <div class="loan-receipt-actions">

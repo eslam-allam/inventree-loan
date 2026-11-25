@@ -46,13 +46,24 @@ def notify_users(users, name: str, message: str, target=None, link: str = ""):
 
 
 def manager_users():
-    """Return active loan staff, with superusers as a fallback."""
-    User = get_user_model()
-    users = list(
-        User.objects.filter(loan_staff__active=True, is_active=True).distinct()
-    )
+    """Return active loan staff, with superusers as a fallback.
+
+    Query ``LoanStaff`` directly instead of relying on the reverse accessor on
+    the user model: InvenTree reloads plugin apps at runtime, which can drop
+    reverse relations from the already-loaded User model.
+    """
+    from ..models import LoanStaff
+
+    users = [
+        staff.user
+        for staff in LoanStaff.objects.filter(
+            active=True, user__is_active=True
+        ).select_related("user")
+    ]
     if users:
         return users
+
+    User = get_user_model()
     return list(User.objects.filter(is_superuser=True, is_active=True))
 
 
@@ -90,8 +101,9 @@ def notify_request_submitted(request):
     name = f"New loan request {request.reference}"
     message = f"{request.requester} requested {request.item_count} item(s)."
     link = request_link(request)
-    notify_users(manager_users(), name, message, target=request, link=link)
-    for user in manager_users():
+    managers = manager_users()
+    notify_users(managers, name, message, target=request, link=link)
+    for user in managers:
         send_email(user, name, f"{message}\n\n{link}")
 
 

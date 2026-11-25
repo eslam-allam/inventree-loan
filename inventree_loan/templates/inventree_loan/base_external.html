@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}{% trans "Request a loan" %}{% endblock %} · InvenTree</title>
-    <link rel="stylesheet" href="{% static 'plugins/loan/loan.css' %}">
+    <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
 </head>
 <body class="loan-body loan-external" data-page="{{ page|default:'' }}">
 <a class="loan-skip-link" href="#loan-main">{% trans "Skip to content" %}</a>
@@ -49,7 +49,7 @@
 </main>
 
 {% include "inventree_loan/_js_config.html" %}
-<script src="{% static 'plugins/loan/loan.js' %}" defer></script>
+<script src="{% url 'plugin:loan:asset' 'loan.js' %}" defer></script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>
