@@ -336,6 +336,8 @@
         const searchInput = $('[data-public-search]', root);
         const resultsContainer = $('[data-public-results]', root);
         const resultCount = $('[data-public-result-count]', root);
+        const pageInfo = $('[data-public-page-info]', root);
+        const pager = $('[data-public-pager]', root);
         const heading = $('[data-public-heading]', root);
         const categoryButtons = $$('[data-category-id]', root);
         const cartBody = $('[data-cart-body]', root);
@@ -343,14 +345,25 @@
         const cartEmpty = $('[data-cart-empty]', root);
         const cartCount = $('[data-cart-count]', root);
         const cartTotal = $('[data-cart-total]', root);
+        const neededByInput = $('#needed_by');
+        const returnByInput = $('#return_by');
         const submit = $('[data-request-submit]', root);
         const errorBox = $('[data-request-error]', root);
         const successBox = $('[data-request-success]', root);
         const continueButton = $('[data-scroll-to-details]', root);
         const partDialog = $('[data-part-dialog]', document);
         const partDialogContent = $('[data-part-dialog-content]', partDialog);
-        const state = { lines: [], parts: new Map(), category: '', search: '' };
+        const state = { lines: [], parts: new Map(), category: '', search: '', page: 0, total: 0, limit: 25 };
         let loadSequence = 0;
+        const syncDates = () => {
+            if (!neededByInput || !returnByInput) return;
+            returnByInput.min = neededByInput.value || '';
+            if (neededByInput.value && returnByInput.value && returnByInput.value < neededByInput.value) {
+                returnByInput.value = neededByInput.value;
+            }
+        };
+        neededByInput?.addEventListener('change', syncDates);
+        syncDates();
 
         window.addEventListener('beforeunload', (event) => {
             if (!state.lines.length) return;
@@ -358,19 +371,21 @@
             event.returnValue = '';
         });
 
-        const scrollToDetails = () => {
-            const details = $('#request-details');
-            if (!details) return;
-            details.scrollIntoView({
+        const scrollTo = (selector, focusSelector) => {
+            const target = $(selector);
+            if (!target) return;
+            target.scrollIntoView({
                 behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
                 block: 'start'
             });
-            window.setTimeout(() => $('#requester_name')?.focus(), 350);
+            if (focusSelector) window.setTimeout(() => $(focusSelector)?.focus(), 350);
         };
+        const scrollToDetails = () => scrollTo('#request-details', '#requester_name');
         continueButton?.addEventListener('click', scrollToDetails);
+        $('[data-scroll-to-basket]', root)?.addEventListener('click', () => scrollTo('#request-basket'));
 
         const renderCart = () => {
-            cartCount.textContent = String(state.lines.length);
+            $$('[data-cart-count]').forEach((element) => { element.textContent = String(state.lines.length); });
             cartTotal.textContent = String(state.lines.reduce((sum, line) => sum + num(line.quantity), 0));
             if (!state.lines.length) {
                 cartEmpty.hidden = false;
@@ -387,14 +402,16 @@
                         ${line.ipn ? `<div class="loan-muted">${esc(line.ipn)}</div>` : ''}
                         ${line.stock_item_id ? `<div class="loan-muted">Asset: ${esc(line.label)}</div>` : ''}
                     </td>
-                    <td><input class="loan-input loan-qty-input" type="number" min="${line.stock_item_id ? 1 : 0.00001}" step="any" value="${line.quantity}" data-qty-index="${index}" aria-label="Quantity for ${esc(line.name)}"></td>
+                    <td><input class="loan-input loan-qty-input" type="number" min="${line.stock_item_id ? 1 : 0.00001}" max="${line.stock_item_id ? 1 : line.available || ''}" step="any" value="${line.quantity}" data-qty-index="${index}" aria-label="Quantity for ${esc(line.name)}"></td>
                     <td><button class="loan-icon-btn" type="button" data-remove-index="${index}" aria-label="Remove ${esc(line.name)}"><i class="fas fa-trash" aria-hidden="true"></i></button></td>
                 </tr>`).join('');
             cartBody.querySelectorAll('[data-qty-index]').forEach((input) => {
                 input.addEventListener('change', () => {
                     const index = Number(input.dataset.qtyIndex);
-                    const value = Math.max(num(input.value), 0.00001);
-                    state.lines[index].quantity = value;
+                    const line = state.lines[index];
+                    const maximum = line.stock_item_id ? 1 : (num(line.available) || num(input.value));
+                    const value = Math.min(Math.max(num(input.value), 0.00001), maximum);
+                    line.quantity = value;
                     input.value = value;
                     renderCart();
                 });
@@ -408,16 +425,24 @@
         };
 
         const addPart = (part, quantity = 1) => {
+            const available = num(part.available);
+            if (available <= 0) {
+                if (scanResult) {
+                    scanResult.className = 'catalog-scan-result is-error';
+                    scanResult.textContent = `${part.name} is not available to borrow.`;
+                }
+                return;
+            }
             const existing = state.lines.find((line) => !line.stock_item_id && line.part_id === part.pk);
             if (existing) {
-                existing.quantity = num(existing.quantity) + num(quantity);
+                existing.quantity = Math.min(num(existing.quantity) + num(quantity), available);
             } else {
                 state.lines.push({
                     part_id: part.pk,
                     name: part.name,
                     ipn: part.ipn || '',
-                    quantity: num(quantity) || 1,
-                    available: num(part.available),
+                    quantity: Math.min(num(quantity) || 1, available),
+                    available,
                     trackable: Boolean(part.trackable),
                     stock_item_id: null,
                     label: ''
@@ -531,34 +556,52 @@
             });
         }
 
-        const renderResults = (parts) => {
-            if (resultCount) {
-                const suffix = parts.length >= 60 ? '+' : '';
-                resultCount.textContent = `${parts.length}${suffix} ${parts.length === 1 ? 'item' : 'items'}`;
+        const renderPager = () => {
+            if (!pager) return;
+            const pages = Math.max(Math.ceil(state.total / state.limit), 1);
+            const current = state.page;
+            const buttons = [];
+            buttons.push(`<button class="it-page-btn" type="button" data-page="${current - 1}" ${current <= 0 ? 'disabled' : ''} aria-label="Previous page">‹</button>`);
+            const first = Math.max(0, current - 2);
+            const last = Math.min(pages - 1, first + 4);
+            for (let page = first; page <= last; page += 1) {
+                buttons.push(`<button class="it-page-btn ${page === current ? 'is-active' : ''}" type="button" data-page="${page}" aria-current="${page === current ? 'page' : 'false'}">${page + 1}</button>`);
             }
+            buttons.push(`<button class="it-page-btn" type="button" data-page="${current + 1}" ${current >= pages - 1 ? 'disabled' : ''} aria-label="Next page">›</button>`);
+            pager.innerHTML = buttons.join('');
+            pager.querySelectorAll('[data-page]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    if (button.disabled) return;
+                    state.page = Number(button.dataset.page);
+                    loadCatalog();
+                });
+            });
+            if (pageInfo) {
+                const start = state.total ? state.page * state.limit + 1 : 0;
+                const end = Math.min((state.page + 1) * state.limit, state.total);
+                pageInfo.textContent = `${start} - ${end} / ${state.total}`;
+            }
+        };
+
+        const renderResults = (parts) => {
+            if (resultCount) resultCount.textContent = `${state.total} ${state.total === 1 ? 'item' : 'items'}`;
             if (!parts.length) {
-                resultsContainer.innerHTML = '<div class="catalog-empty">No matching items. Try another category or search.</div>';
+                resultsContainer.innerHTML = '<tr><td colspan="6" class="it-table-empty">No matching items. Try another category or search.</td></tr>';
+                renderPager();
                 return;
             }
             resultsContainer.innerHTML = parts.map((part) => {
                 const available = num(part.available);
-                const cls = available <= 0 ? 'is-none' : available < 3 ? 'is-low' : '';
-                const image = `<i class="fas fa-box" aria-hidden="true"></i>${part.image ? `<img src="${esc(part.image)}" alt="" loading="lazy" onerror="this.remove()">` : ''}`;
-                return `<article class="part-card">
-                    <div class="part-card-image">${image}</div>
-                    <div class="part-card-body">
-                        <h3 class="part-card-title">${esc(part.name)}</h3>
-                        <div class="part-card-meta">${esc(part.ipn || 'No part number')}${part.category ? ` · ${esc(part.category)}` : ''}</div>
-                        <p class="part-card-desc">${esc(part.description || 'No description available.')}</p>
-                        <div class="part-card-foot">
-                            <span class="availability ${cls}">${available > 0 ? `${available} available` : 'Unavailable'}</span>
-                            <div class="part-card-actions">
-                                <button class="btn btn-small" type="button" data-open-part="${part.pk}">Details</button>
-                                <button class="btn btn-small btn-primary" type="button" data-add-part="${part.pk}" ${available <= 0 ? 'disabled' : ''}>Add</button>
-                            </div>
-                        </div>
-                    </div>
-                </article>`;
+                return `<tr>
+                    <td><button class="it-link" type="button" data-open-part="${part.pk}">${esc(part.name)}</button></td>
+                    <td>${esc(part.ipn || '—')}</td>
+                    <td class="it-ellipsis" title="${esc(part.description || '')}">${esc(part.description || '—')}</td>
+                    <td>${esc(part.category || '—')}</td>
+                    <td class="it-num">${available > 0 ? available : '<span class="it-dim">Unavailable</span>'}</td>
+                    <td class="it-actions">
+                        <button class="it-btn it-btn-light it-btn-small" type="button" data-add-part="${part.pk}" ${available <= 0 ? 'disabled' : ''}>Add</button>
+                    </td>
+                </tr>`;
             }).join('');
             resultsContainer.querySelectorAll('[data-open-part]').forEach((button) => {
                 button.addEventListener('click', () => openPart(button.dataset.openPart));
@@ -574,32 +617,42 @@
                     }
                 });
             });
+            renderPager();
         };
 
         const loadCatalog = async () => {
             if (!resultsContainer) return;
             const sequence = ++loadSequence;
-            resultsContainer.innerHTML = '<div class="catalog-empty">Loading catalogue…</div>';
-            const params = new URLSearchParams({ limit: '60' });
+            resultsContainer.innerHTML = '<tr><td colspan="6" class="it-table-empty">Loading catalogue…</td></tr>';
+            const params = new URLSearchParams({
+                limit: String(state.limit),
+                offset: String(state.page * state.limit)
+            });
             if (state.search) params.set('search', state.search);
             if (state.category) params.set('category', state.category);
             try {
                 const data = await api(`${L.api.publicCatalog}?${params.toString()}`);
                 if (sequence !== loadSequence) return;
                 const parts = data.results || [];
+                state.total = num(data.total);
                 state.parts = new Map(parts.map((part) => [String(part.pk), part]));
                 renderResults(parts);
             } catch (error) {
                 if (sequence !== loadSequence) return;
-                resultsContainer.innerHTML = `<div class="catalog-empty">${esc(formatError(error))}</div>`;
+                resultsContainer.innerHTML = `<tr><td colspan="6" class="it-table-empty">${esc(formatError(error))}</td></tr>`;
             }
         };
 
         categoryButtons.forEach((button) => {
             button.addEventListener('click', () => {
-                categoryButtons.forEach((item) => item.classList.remove('is-active'));
+                categoryButtons.forEach((item) => {
+                    item.classList.remove('is-active');
+                    item.setAttribute('aria-selected', 'false');
+                });
                 button.classList.add('is-active');
+                button.setAttribute('aria-selected', 'true');
                 state.category = button.dataset.categoryId || '';
+                state.page = 0;
                 if (heading) {
                     heading.textContent = button.querySelector('span')?.textContent || button.textContent;
                 }
@@ -610,6 +663,7 @@
         if (searchInput) {
             searchInput.addEventListener('input', debounce(() => {
                 state.search = searchInput.value.trim();
+                state.page = 0;
                 loadCatalog();
             }, 220));
         }
@@ -787,7 +841,7 @@
                 clearSignature();
                 showSuccess(
                     successBox,
-                    `Request <strong>${esc(created.reference)}</strong> sent. <a href="${esc(created.track_url)}">Track your request</a>.`
+                    `Your request reference is <strong>${esc(created.reference)}</strong>.<br><a href="${esc(created.track_url)}">Track this request</a> · <a href="${esc(created.receipt_url)}" target="_blank" rel="noopener">Print request receipt</a>.`
                 );
                 submit.innerHTML = 'Request sent';
                 submit.disabled = true;

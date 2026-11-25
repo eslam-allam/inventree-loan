@@ -165,6 +165,14 @@ def add_allocation(
         raise ValidationError(
             {"stock_item_id": _("The stock item does not belong to this request line")}
         )
+    if line.stock_item_id and stock_item.pk != line.stock_item_id:
+        raise ValidationError(
+            {
+                "stock_item_id": _(
+                    "This request line is for a specific stock item"
+                )
+            }
+        )
 
     quantity = _quantity(quantity)
     if stock_item.serialized and quantity != 1:

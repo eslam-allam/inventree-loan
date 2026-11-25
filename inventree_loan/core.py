@@ -283,7 +283,15 @@ class InvenTreeLoanPlugin(
                 "icon": "ti:box:outline",
                 "source": self._asset_source("admin.js", "renderLoanPage"),
                 "options": {"path": "management"},
-            }
+            },
+            {
+                "key": "loan-request-detail",
+                "title": str(_("Loan request")),
+                "description": str(_("Request details, allocation, approval and handout.")),
+                "icon": "ti:clipboard-list",
+                "source": self._asset_source("admin.js", "renderRequestPage"),
+                "options": {"path": "requests/:pk"},
+            },
         ]
 
     def get_ui_dashboard_items(self, request, context, **kwargs):

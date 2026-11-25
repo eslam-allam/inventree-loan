@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <meta name="color-scheme" content="light dark">
-    <meta name="theme-color" content="#edf1ec" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#111a15" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#242424" media="(prefers-color-scheme: dark)">
     <title>{% block title %}{% trans "Request a loan" %}{% endblock %} · InvenTree</title>
     <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
     <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'public.css' %}">
@@ -29,9 +29,10 @@
             {% if can_request %}
                 <a class="ext-nav-link {% if page == 'request-new' %}is-active{% endif %}" href="{% url 'plugin:loan:request_new' %}">{% trans "Request equipment" %}</a>
             {% endif %}
-            {% if is_authenticated %}
-                <a class="ext-nav-link {% if page == 'requests' or page == 'request-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:requests' %}">{% trans "My requests" %}</a>
-                <a class="ext-nav-link {% if page == 'loans' or page == 'loan-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}">{% trans "My loans" %}</a>
+            {% if not is_authenticated %}
+                <a class="ext-nav-link {% if page == 'track-lookup' %}is-active{% endif %}" href="{% url 'plugin:loan:public_track_lookup' %}">{% trans "Track a request" %}</a>
+            {% else %}
+                <a class="ext-nav-link {% if page == 'requests' or page == 'loans' or page == 'request-detail' or page == 'loan-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:dashboard' %}">{% trans "My requests" %}</a>
             {% endif %}
         </nav>
 

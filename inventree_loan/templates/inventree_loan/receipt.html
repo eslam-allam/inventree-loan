@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% trans "Loan receipt" %} {{ loan.reference }}</title>
+    <title>{% if receipt_type == "handout" %}{% trans "Handout receipt" %}{% elif receipt_type == "return" %}{% trans "Return receipt" %}{% else %}{% trans "Loan receipt" %}{% endif %} {{ loan.reference }}</title>
     <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
 </head>
 <body class="loan-receipt-body">
@@ -17,10 +17,11 @@
     <header class="loan-receipt-header">
         <div>
             <p class="loan-eyebrow">{% trans "InvenTree Loan Manager" %}</p>
-            <h1>{% trans "Loan receipt" %}</h1>
+            <h1>{% if receipt_type == "handout" %}{% trans "Loan handout receipt" %}{% elif receipt_type == "return" %}{% trans "Loan return receipt" %}{% else %}{% trans "Loan receipt" %}{% endif %}</h1>
             <p class="loan-receipt-ref">{{ loan.reference }}</p>
+            <p class="loan-muted">{% trans "Scan the code to open the request details." %}</p>
         </div>
-        <img class="loan-receipt-qr" src="{{ qr_url }}" alt="{% trans 'Loan QR code' %}" width="128" height="128">
+        <img class="loan-receipt-qr" src="{{ qr_url }}" alt="{% trans 'Request tracking QR code' %}" width="128" height="128">
     </header>
 
     <section class="loan-receipt-grid">

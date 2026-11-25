@@ -48,7 +48,7 @@
             {% for line in request_obj.lines.all %}
                 <tr>
                     <td>{{ line.part.name }}{% if line.part.IPN %}<br><span class="loan-muted">{{ line.part.IPN }}</span>{% endif %}</td>
-                    <td>{{ line.stock_item|default:_("Any available") }}</td>
+                    <td>{% if line.stock_item %}{{ line.stock_item }}{% else %}{% trans "Any available" %}{% endif %}</td>
                     <td>{{ line.quantity|floatformat:"-5" }}</td>
                 </tr>
             {% endfor %}

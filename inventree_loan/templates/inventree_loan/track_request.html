@@ -18,6 +18,7 @@
         </div>
         <div class="loan-page-actions">
             {% include "inventree_loan/_status_badge.html" with status=request_obj.status label=request_obj.get_status_display %}
+            <a class="loan-btn" href="{% url 'plugin:loan:public_request_receipt' request_obj.public_token %}" target="_blank" rel="noopener">{% trans "Print request receipt" %}</a>
         </div>
     </header>
 

@@ -50,6 +50,14 @@ def get_native_management_url(relative: bool = False) -> str:
     return f"/{get_frontend_base()}{path}"
 
 
+def get_native_request_url(pk: int, relative: bool = False) -> str:
+    """Return the native request detail page URL."""
+    path = f"/plugin/{PLUGIN_SLUG}/requests/{pk}"
+    if relative:
+        return path.lstrip("/")
+    return f"/{get_frontend_base()}{path}"
+
+
 def get_admin_console_url() -> str:
     """Backwards-compatible alias for the management page URL."""
     return get_native_management_url()

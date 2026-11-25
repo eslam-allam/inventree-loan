@@ -130,6 +130,7 @@ def _drf_error(exc: DjangoValidationError):
 
 
 def _request_data(request: LoanRequest, user) -> dict:
+    loan = Loan.objects.filter(request=request).first()
     return {
         "pk": request.pk,
         "reference": request.reference,
@@ -163,6 +164,11 @@ def _request_data(request: LoanRequest, user) -> dict:
         "item_count": request.item_count,
         "total_quantity": _num(request.total_quantity),
         "is_fully_allocated": request.is_fully_allocated,
+        "loan_pk": loan.pk if loan else None,
+        "loan_reference": loan.reference if loan else "",
+        "loan_status": loan.status if loan else "",
+        "loan_status_display": loan.get_status_display() if loan else "",
+        "loan_returned_at": _iso(loan.returned_at) if loan else None,
         "can_approve": can_approve(user) and request.status == "pending",
         "can_cancel": request.status in {"pending", "approved", "partially_fulfilled"},
         "can_checkout": can_handout(user)
@@ -282,8 +288,12 @@ def _public_request_data(loan_request: LoanRequest) -> dict:
         "decision_notes": loan_request.decision_notes,
         "created": _iso(loan_request.created),
         "has_signature": bool(loan_request.signature),
+        "public_token": str(loan_request.public_token),
         "track_url": reverse(
             "plugin:loan:public_request_detail", args=[loan_request.public_token]
+        ),
+        "receipt_url": reverse(
+            "plugin:loan:public_request_receipt", args=[loan_request.public_token]
         ),
         "lines": [
             {
@@ -344,13 +354,18 @@ class PublicCatalogView(APIView):
         except (TypeError, ValueError):
             category_id = None
         limit = int(request.GET.get("limit", get_setting("CATALOG_PAGE_SIZE", 20) or 20))
-        return Response({
-            "results": catalog_parts(
+        try:
+            offset = max(int(request.GET.get("offset", 0)), 0)
+        except (TypeError, ValueError):
+            offset = 0
+        return Response(
+            catalog_parts(
                 search,
                 limit=min(max(limit, 1), 100),
                 category_id=category_id,
+                offset=offset,
             )
-        })
+        )
 
 
 class PublicPartDetailView(APIView):
@@ -535,7 +550,7 @@ class CatalogView(LoanAPIView):
     def get(self, request):
         search = request.GET.get("search", "").strip()
         limit = int(request.GET.get("limit", get_setting("CATALOG_PAGE_SIZE", 20) or 20))
-        return Response({"results": catalog_parts(search, limit=min(max(limit, 1), 100))})
+        return Response(catalog_parts(search, limit=min(max(limit, 1), 100)))
 
 
 class RequestListCreateView(LoanAPIView):
@@ -663,7 +678,9 @@ class RequestAllocateView(LoanAPIView):
                 )
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
-        return Response(_request_data(loan_request, request.user))
+        return Response(
+            _request_data(request_with_lines(request.user, pk), request.user)
+        )
 
 
 class RequestAllocationCandidatesView(LoanAPIView):
@@ -678,6 +695,11 @@ class RequestAllocationCandidatesView(LoanAPIView):
         data = part_detail(line.part_id, exclude_request=loan_request)
         if data is None:
             raise Http404
+        stock_items = data["stock_items"]
+        if line.stock_item_id:
+            stock_items = [
+                item for item in stock_items if item["pk"] == line.stock_item_id
+            ]
         return Response({
             "line_id": line.pk,
             "part": line.part_id,
@@ -685,7 +707,7 @@ class RequestAllocationCandidatesView(LoanAPIView):
             "requested": _num(line.quantity),
             "allocated": _num(line.allocated_quantity),
             "outstanding": _num(line.unallocated_quantity),
-            "stock_items": data["stock_items"],
+            "stock_items": stock_items,
         })
 
 
@@ -698,7 +720,9 @@ class RequestAllocationDeleteView(LoanAPIView):
             remove_allocation(loan_request, request.user, allocation_pk)
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
-        return Response(_request_data(loan_request, request.user))
+        return Response(
+            _request_data(request_with_lines(request.user, pk), request.user)
+        )
 
 
 class LoanListView(LoanAPIView):

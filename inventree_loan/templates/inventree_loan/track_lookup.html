@@ -1,0 +1,34 @@
+{% extends base_template %}
+{% load i18n %}
+{% block title %}{% trans "Track a request" %}{% endblock %}
+{% block content %}
+<div class="it-breadcrumb"><a href="{% url 'plugin:loan:request_new' %}">{% trans "Request equipment" %}</a> / {% trans "Track a request" %}</div>
+
+<header class="it-page-head">
+    <div>
+        <h1>{% trans "Track a request" %}</h1>
+        <p class="it-page-lede">{% trans "Enter the reference from your request receipt and the email address you used." %}</p>
+    </div>
+</header>
+
+<section class="it-panel it-lookup-panel">
+    {% if error %}<div class="it-alert it-alert-danger" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" action="{% url 'plugin:loan:public_track_lookup' %}" class="it-form">
+        {% csrf_token %}
+        <div class="it-form-grid">
+            <div class="loan-field">
+                <label class="loan-label" for="reference">{% trans "Request reference" %} <span class="loan-required">*</span></label>
+                <input class="loan-input" id="reference" name="reference" value="{{ reference }}" placeholder="{% trans 'REQ-2026-0001' %}" required autocomplete="off">
+            </div>
+            <div class="loan-field">
+                <label class="loan-label" for="email">{% trans "Email address" %} <span class="loan-required">*</span></label>
+                <input class="loan-input" id="email" name="email" type="email" value="{{ email }}" required autocomplete="email">
+            </div>
+        </div>
+        <div class="it-form-actions">
+            <button class="it-btn it-btn-primary" type="submit">{% trans "Find my request" %}</button>
+            <a class="it-btn" href="{% url 'plugin:loan:request_new' %}">{% trans "New request" %}</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

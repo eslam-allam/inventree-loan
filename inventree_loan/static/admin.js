@@ -318,10 +318,16 @@ function RequestDetailModal({ context, requestId, onClose, onAction, handoutMode
                                       h(
                                           M.Table.Td,
                                           null,
-                                          h(M.Text, { fw: 600 }, line.part_name),
+                                          h(M.Anchor, { href: line.part_url || '#', target: '_blank', fw: 600 }, line.part_name),
                                           line.ipn ? h(M.Text, { size: 'xs', c: 'dimmed' }, line.ipn) : null
                                       ),
-                                      h(M.Table.Td, null, line.stock_item_label || 'Any available'),
+                                      h(
+                                          M.Table.Td,
+                                          null,
+                                          line.stock_item_url
+                                              ? h(M.Anchor, { href: line.stock_item_url, target: '_blank' }, line.stock_item_label)
+                                              : line.stock_item_label || 'Any available'
+                                      ),
                                       h(M.Table.Td, null, line.quantity),
                                       h(M.Table.Td, null, line.notes || '—')
                                   )
@@ -400,6 +406,370 @@ function RequestDetailModal({ context, requestId, onClose, onAction, handoutMode
     );
 }
 
+function RequestDetailPage({ context, requestId }) {
+    const api = context.api;
+    const [detail, setDetail] = useState(null);
+    const [error, setError] = useState('');
+    const [reloadKey, setReloadKey] = useState(0);
+    const [busy, setBusy] = useState('');
+    const [allocationError, setAllocationError] = useState('');
+    const [manualLine, setManualLine] = useState(null);
+    const [candidates, setCandidates] = useState(null);
+    const [candidateError, setCandidateError] = useState('');
+    const [stockItemId, setStockItemId] = useState('');
+    const [quantity, setQuantity] = useState(1);
+    const [action, setAction] = useState(null);
+    const [notes, setNotes] = useState('');
+    const [signature, setSignature] = useState('');
+    const [actionError, setActionError] = useState('');
+    const [actionBusy, setActionBusy] = useState(false);
+
+    useEffect(() => {
+        let active = true;
+        setError('');
+        setDetail(null);
+        api.get(`/plugin/loan/api/requests/${requestId}/`)
+            .then((response) => {
+                if (active) setDetail(response.data);
+            })
+            .catch((err) => {
+                if (active) setError(errorText(err));
+            });
+        return () => {
+            active = false;
+        };
+    }, [api, requestId, reloadKey]);
+
+    const reload = () => setReloadKey((value) => value + 1);
+
+    const allocate = (payload) => {
+        setBusy('allocate');
+        setAllocationError('');
+        return api.post(`/plugin/loan/api/requests/${requestId}/allocate/`, payload)
+            .then((response) => {
+                setDetail(response.data);
+                return response.data;
+            })
+            .catch((err) => {
+                setAllocationError(errorText(err));
+                throw err;
+            })
+            .finally(() => setBusy(''));
+    };
+
+    const removeAllocation = (allocation) => {
+        if (!window.confirm(`Remove ${allocation.quantity} × ${allocation.stock_item_label}?`)) return;
+        setBusy(`remove-${allocation.pk}`);
+        setAllocationError('');
+        api.delete(`/plugin/loan/api/requests/${requestId}/allocations/${allocation.pk}/`)
+            .then((response) => setDetail(response.data))
+            .catch((err) => setAllocationError(errorText(err)))
+            .finally(() => setBusy(''));
+    };
+
+    const openManualAllocation = (line) => {
+        setManualLine(line);
+        setCandidates(null);
+        setCandidateError('');
+        setStockItemId('');
+        setQuantity(Number(line.unallocated_quantity) || 1);
+        api.get(`/plugin/loan/api/requests/${requestId}/allocations/candidates/?line_id=${line.pk}`)
+            .then((response) => setCandidates(response.data))
+            .catch((err) => setCandidateError(errorText(err)));
+    };
+
+    const selectedCandidate = (candidates?.stock_items || []).find(
+        (item) => String(item.pk) === String(stockItemId)
+    );
+
+    const submitManualAllocation = () => {
+        if (!manualLine || !selectedCandidate) {
+            setCandidateError('Choose a stock item to allocate.');
+            return;
+        }
+        allocate({
+            line_id: manualLine.pk,
+            stock_item_id: selectedCandidate.pk,
+            quantity: selectedCandidate.serialized ? 1 : quantity
+        }).then(() => setManualLine(null)).catch(() => {});
+    };
+
+    const submitAction = () => {
+        if (!action) return;
+        if (action === 'checkout' && !signature) {
+            setActionError('The borrower must sign before the items are handed out.');
+            return;
+        }
+        setActionBusy(true);
+        setActionError('');
+        const promise = action === 'checkout'
+            ? api.post('/plugin/loan/api/checkout/', {
+                  request_id: requestId,
+                  notes,
+                  signature
+              })
+            : api.post(`/plugin/loan/api/requests/${requestId}/${action}/`, { notes });
+        promise
+            .then(() => {
+                setAction(null);
+                setNotes('');
+                setSignature('');
+                reload();
+            })
+            .catch((err) => setActionError(errorText(err)))
+            .finally(() => setActionBusy(false));
+    };
+
+    const requestReceipt = detail?.public_token
+        ? `/plugin/loan/track/${detail.public_token}/receipt/`
+        : null;
+    const handoutReceipt = detail?.loan_pk
+        ? `/plugin/loan/loans/${detail.loan_pk}/receipt/?type=handout`
+        : null;
+    const returnReceipt = detail?.loan_pk && detail?.loan_status === 'returned'
+        ? `/plugin/loan/loans/${detail.loan_pk}/receipt/?type=return`
+        : null;
+    const canAllocate = Boolean(detail?.can_approve || detail?.can_checkout);
+    const fulfilled = Boolean(detail?.loan_pk) || detail?.status === 'fulfilled';
+
+    if (error) {
+        return h(M.Stack, { gap: 'md' }, h(ErrorAlert, { error }), h(M.Button, { onClick: () => context.navigate('/plugin/loan/management') }, 'Back to loan desk'));
+    }
+    if (!detail) return h(Loading);
+
+    return h(
+        M.Stack,
+        { gap: 'md' },
+        h(
+            M.Group,
+            { justify: 'space-between', align: 'flex-start' },
+            h(
+                M.Group,
+                { gap: 'sm', align: 'center' },
+                h(M.Button, { variant: 'default', size: 'xs', onClick: () => context.navigate('/plugin/loan/management') }, 'Back'),
+                h(M.Title, { order: 3 }, `Request ${detail.reference}`),
+                h(StatusBadge, { status: detail.status, label: detail.status_display })
+            ),
+            h(
+                M.Group,
+                { gap: 6, wrap: 'wrap' },
+                requestReceipt ? h(M.Anchor, { href: requestReceipt, target: '_blank', size: 'sm' }, 'Print request receipt') : null,
+                handoutReceipt ? h(M.Anchor, { href: handoutReceipt, target: '_blank', size: 'sm' }, 'Print handout receipt') : null,
+                returnReceipt ? h(M.Anchor, { href: returnReceipt, target: '_blank', size: 'sm' }, 'Print return receipt') : null
+            )
+        ),
+        h(
+            M.Paper,
+            { withBorder: true, p: 'md' },
+            h(
+                M.Group,
+                { justify: 'space-between', align: 'flex-start' },
+                h(
+                    M.Stack,
+                    { gap: 2 },
+                    h(M.Text, { fw: 700 }, detail.requester_name || detail.requester),
+                    h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_email || 'No email provided'),
+                    detail.requester_phone ? h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_phone) : null,
+                    detail.requester_organization || detail.requester_identifier
+                        ? h(M.Text, { size: 'sm', c: 'dimmed' }, [detail.requester_organization, detail.requester_identifier].filter(Boolean).join(' · '))
+                        : null
+                ),
+                h(
+                    M.Group,
+                    { gap: 'xs' },
+                    detail.can_approve ? h(M.Button, { size: 'xs', color: 'green', onClick: () => setAction('approve') }, 'Approve') : null,
+                    detail.can_approve ? h(M.Button, { size: 'xs', color: 'red', variant: 'light', onClick: () => setAction('reject') }, 'Reject') : null,
+                    detail.can_checkout ? h(M.Button, { size: 'xs', onClick: () => setAction('checkout') }, 'Hand out') : null
+                )
+            ),
+            h(M.Text, { mt: 'sm' }, detail.purpose || 'No purpose provided.'),
+            h(
+                M.Group,
+                { gap: 'lg', mt: 'xs' },
+                h(M.Text, { size: 'sm' }, `Pickup: ${formatDate(detail.needed_by)}`),
+                h(M.Text, { size: 'sm' }, `Return: ${formatDate(detail.return_by)}`),
+                h(M.Text, { size: 'sm' }, `Created: ${formatDate(detail.created)}`)
+            ),
+            detail.notes ? h(M.Text, { size: 'sm', c: 'dimmed', mt: 'xs' }, detail.notes) : null
+        ),
+        h(
+            M.Paper,
+            { withBorder: true, p: 'md' },
+            h(
+                M.Group,
+                { justify: 'space-between', mb: 'sm' },
+                h(M.Title, { order: 4 }, 'Requested items'),
+                canAllocate && !fulfilled
+                    ? h(
+                          M.Group,
+                          { gap: 'xs' },
+                          h(M.Button, { size: 'xs', loading: busy === 'allocate', onClick: () => allocate({ auto: true }) }, 'Auto allocate'),
+                          h(M.Button, { size: 'xs', variant: 'default', loading: busy === 'allocate', onClick: () => allocate({ clear: true }) }, 'Clear allocations')
+                      )
+                    : null
+            ),
+            h(ErrorAlert, { error: allocationError }),
+            h(
+                M.Table,
+                { verticalSpacing: 'sm' },
+                h(
+                    M.Table.Thead,
+                    null,
+                    h(
+                        M.Table.Tr,
+                        null,
+                        h(M.Table.Th, null, 'Part'),
+                        h(M.Table.Th, null, 'Requested'),
+                        h(M.Table.Th, null, 'Allocated'),
+                        h(M.Table.Th, null, 'Outstanding'),
+                        h(M.Table.Th, null, 'Available'),
+                        h(M.Table.Th, null, 'Actions')
+                    )
+                ),
+                h(
+                    M.Table.Tbody,
+                    null,
+                    (detail.lines || []).map((line) =>
+                        h(
+                            React.Fragment,
+                            { key: line.pk },
+                            h(
+                                M.Table.Tr,
+                                null,
+                                h(
+                                    M.Table.Td,
+                                    null,
+                                    h(M.Anchor, { href: line.part_url || '#', target: '_blank', fw: 600 }, line.part_name),
+                                    line.ipn ? h(M.Text, { size: 'xs', c: 'dimmed' }, line.ipn) : null
+                                ),
+                                h(M.Table.Td, null, line.quantity),
+                                h(
+                                    M.Table.Td,
+                                    null,
+                                    fulfilled
+                                        ? h(M.Badge, { color: 'green', variant: 'light' }, 'Issued')
+                                        : h(M.Badge, { color: line.is_fully_allocated ? 'green' : line.allocated_quantity > 0 ? 'yellow' : 'gray', variant: 'light' }, `${line.allocated_quantity} / ${line.quantity}`)
+                                ),
+                                h(M.Table.Td, null, fulfilled ? '0' : line.unallocated_quantity),
+                                h(M.Table.Td, null, fulfilled ? '—' : line.available_stock),
+                                h(
+                                    M.Table.Td,
+                                    null,
+                                    h(
+                                        M.Group,
+                                        { gap: 4, wrap: 'nowrap' },
+                                        h(M.Anchor, { href: line.part_url || '#', target: '_blank', size: 'xs' }, 'View part'),
+                                        canAllocate && !fulfilled
+                                            ? h(M.Button, { size: 'compact-xs', variant: 'light', onClick: () => openManualAllocation(line) }, 'Allocate')
+                                            : null
+                                    )
+                                )
+                            ),
+                            !fulfilled && (line.allocations || []).length
+                                ? h(
+                                      M.Table.Tr,
+                                      null,
+                                      h(
+                                          M.Table.Td,
+                                          { colSpan: 6 },
+                                          h(
+                                              M.Stack,
+                                              { gap: 4 },
+                                              h(M.Text, { size: 'xs', fw: 600, c: 'dimmed' }, 'Allocated stock'),
+                                              ...(line.allocations || []).map((allocation) =>
+                                                  h(
+                                                      M.Group,
+                                                      { key: allocation.pk, justify: 'space-between', gap: 'sm' },
+                                                      h(
+                                                          M.Group,
+                                                          { gap: 'sm' },
+                                                          h(M.Anchor, { href: allocation.stock_item_url || '#', target: '_blank', size: 'xs' }, allocation.stock_item_label),
+                                                          allocation.stock_item_serial ? h(M.Text, { size: 'xs', c: 'dimmed' }, allocation.stock_item_serial) : null,
+                                                          h(M.Text, { size: 'xs', c: 'dimmed' }, allocation.location || ''),
+                                                          h(M.Text, { size: 'xs' }, `x ${allocation.quantity}`)
+                                                      ),
+                                                      canAllocate
+                                                          ? h(M.Button, { size: 'compact-xs', color: 'red', variant: 'subtle', loading: busy === `remove-${allocation.pk}`, onClick: () => removeAllocation(allocation) }, 'Remove')
+                                                          : null
+                                                  )
+                                              )
+                                          )
+                                      )
+                                  )
+                                : null
+                        )
+                    )
+                )
+            )
+        ),
+        h(
+            M.Paper,
+            { withBorder: true, p: 'md' },
+            h(M.Group, { justify: 'space-between', align: 'flex-start' }, h(M.Title, { order: 4 }, 'Signature'), h(M.Badge, { color: detail.signature ? 'green' : 'red', variant: 'light' }, detail.signature ? 'Signed' : 'Missing')),
+            detail.signature
+                ? h('img', { src: detail.signature, alt: 'Requester signature', style: { maxWidth: 320, marginTop: 8, border: '1px solid #cbd5cc', background: '#fff' } })
+                : null,
+            detail.decision_notes ? h(M.Alert, { color: 'blue', title: 'Decision notes', mt: 'sm' }, detail.decision_notes) : null
+        ),
+        detail.loan_pk
+            ? h(
+                  M.Paper,
+                  { withBorder: true, p: 'md' },
+                  h(M.Group, { justify: 'space-between' }, h(M.Title, { order: 4 }, `Loan ${detail.loan_reference}`), h(StatusBadge, { status: detail.loan_status, label: detail.loan_status_display })),
+                  h(M.Group, { gap: 6, mt: 'xs', wrap: 'wrap' }, handoutReceipt ? h(M.Anchor, { href: handoutReceipt, target: '_blank' }, 'Print handout receipt') : null, returnReceipt ? h(M.Anchor, { href: returnReceipt, target: '_blank' }, 'Print return receipt') : null)
+              )
+            : null,
+        h(
+            M.Modal,
+            { opened: Boolean(manualLine), onClose: () => setManualLine(null), title: manualLine ? `Allocate ${manualLine.part_name}` : 'Allocate stock', size: 'lg', centered: true },
+            h(
+                M.Stack,
+                { gap: 'sm' },
+                candidateError ? h(ErrorAlert, { error: candidateError }) : null,
+                candidates
+                    ? h(M.Select, {
+                          label: 'Stock item',
+                          placeholder: 'Choose a stock item',
+                          data: (candidates.stock_items || []).map((item) => ({
+                              value: String(item.pk),
+                              label: `${item.label || `Item #${item.pk}`} · ${item.location || 'No location'} · ${item.available} available`
+                          })),
+                          value: stockItemId,
+                          onChange: (value) => {
+                              setStockItemId(value || '');
+                              const item = (candidates.stock_items || []).find((entry) => String(entry.pk) === String(value));
+                              if (item?.serialized) setQuantity(1);
+                          },
+                          searchable: true
+                      })
+                    : h(Loading),
+                h(M.NumberInput, {
+                    label: 'Quantity',
+                    min: 0.00001,
+                    step: 1,
+                    value: quantity,
+                    disabled: Boolean(selectedCandidate?.serialized),
+                    onChange: (value) => setQuantity(Math.max(Number(value) || 1, 1)),
+                    max: selectedCandidate ? Number(selectedCandidate.available) : undefined
+                }),
+                h(M.Group, { justify: 'flex-end' }, h(M.Button, { variant: 'default', onClick: () => setManualLine(null) }, 'Cancel'), h(M.Button, { loading: busy === 'allocate', onClick: submitManualAllocation }, 'Allocate'))
+            )
+        ),
+        h(
+            M.Modal,
+            { opened: Boolean(action), onClose: () => setAction(null), title: action === 'checkout' ? 'Hand out request' : action === 'approve' ? 'Approve request' : 'Reject request', centered: true },
+            h(
+                M.Stack,
+                { gap: 'sm' },
+                h(M.Textarea, { label: 'Notes', minRows: 3, value: notes, onChange: (event) => setNotes(event.currentTarget.value) }),
+                action === 'checkout' ? h(SignaturePad, { value: signature, onChange: setSignature, label: 'Borrower signature', required: true }) : null,
+                actionError ? h(M.Text, { size: 'sm', c: 'red' }, actionError) : null,
+                h(M.Group, { justify: 'flex-end' }, h(M.Button, { variant: 'default', onClick: () => setAction(null) }, 'Cancel'), h(M.Button, { loading: actionBusy, color: action === 'reject' ? 'red' : action === 'approve' ? 'green' : undefined, onClick: submitAction }, action === 'checkout' ? 'Confirm handout' : action === 'approve' ? 'Approve' : 'Reject'))
+            )
+        )
+    );
+}
+
 function RequestsPanel({ context }) {
     const api = context.api;
     const [reloadKey, setReloadKey] = useState(0);
@@ -409,7 +779,6 @@ function RequestsPanel({ context }) {
     const [saving, setSaving] = useState(false);
     const [actionError, setActionError] = useState('');
     const [signature, setSignature] = useState('');
-    const [detailId, setDetailId] = useState(null);
 
     const submitAction = useCallback(() => {
         if (!action) return;
@@ -492,7 +861,7 @@ function RequestsPanel({ context }) {
                                                   {
                                                       size: 'xs',
                                                       variant: 'default',
-                                                      onClick: () => setDetailId(request.pk)
+                                                      onClick: () => context.navigate(`/plugin/loan/requests/${request.pk}`)
                                                   },
                                                   'View'
                                               ),
@@ -631,18 +1000,7 @@ function RequestsPanel({ context }) {
                     )
                 )
             )
-        ),
-        h(RequestDetailModal, {
-            context,
-            requestId: detailId,
-            onClose: () => setDetailId(null),
-            onAction: (nextAction) => {
-                setDetailId(null);
-                setAction(nextAction);
-                setNotes('');
-                setActionError('');
-            }
-        })
+        )
     );
 }
 
@@ -726,16 +1084,40 @@ function LoansPanel({ context }) {
                                       h(
                                           M.Table.Td,
                                           null,
-                                          loan.can_return
-                                              ? h(
-                                                    M.Button,
-                                                    {
-                                                        size: 'xs',
-                                                        onClick: () => setReturnLoan(loan)
-                                                    },
-                                                    'Return'
-                                                )
-                                              : h(M.Text, { size: 'sm', c: 'dimmed' }, '—')
+                                          h(
+                                              M.Group,
+                                              { gap: 6, wrap: 'nowrap' },
+                                              loan.can_return
+                                                  ? h(
+                                                        M.Button,
+                                                        {
+                                                            size: 'xs',
+                                                            onClick: () => setReturnLoan(loan)
+                                                        },
+                                                        'Return'
+                                                    )
+                                                  : null,
+                                              h(
+                                                  M.Anchor,
+                                                  {
+                                                      href: `/plugin/loan/loans/${loan.pk}/receipt/?type=handout`,
+                                                      target: '_blank',
+                                                      size: 'xs'
+                                                  },
+                                                  'Handout receipt'
+                                              ),
+                                              loan.status === 'returned'
+                                                  ? h(
+                                                        M.Anchor,
+                                                        {
+                                                            href: `/plugin/loan/loans/${loan.pk}/receipt/?type=return`,
+                                                            target: '_blank',
+                                                            size: 'xs'
+                                                        },
+                                                        'Return receipt'
+                                                    )
+                                                  : null
+                                          )
                                       )
                                   )
                               )
@@ -945,7 +1327,6 @@ function HandoutPanel({ context }) {
     const [busy, setBusy] = useState(null);
     const [result, setResult] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
-    const [viewId, setViewId] = useState(null);
     const [handoutId, setHandoutId] = useState(null);
 
     useEffect(() => {
@@ -1002,7 +1383,7 @@ function HandoutPanel({ context }) {
                   h(
                       M.Group,
                       { gap: 'sm' },
-                      h(M.Anchor, { href: `/plugin/loan/loans/${result.pk}/receipt/`, target: '_blank' }, 'Print receipt'),
+                      h(M.Anchor, { href: `/plugin/loan/loans/${result.pk}/receipt/?type=handout`, target: '_blank' }, 'Print handout receipt'),
                       h(M.Anchor, { href: result.qr_url, target: '_blank' }, 'Open QR')
                   )
               )
@@ -1054,7 +1435,7 @@ function HandoutPanel({ context }) {
                                                     {
                                                         size: 'xs',
                                                         variant: 'default',
-                                                        onClick: () => setViewId(request.pk)
+                                                        onClick: () => context.navigate(`/plugin/loan/requests/${request.pk}`)
                                                     },
                                                     'View'
                                                 ),
@@ -1076,17 +1457,6 @@ function HandoutPanel({ context }) {
                     )
                 )
               : null,
-        h(RequestDetailModal, {
-            context,
-            requestId: viewId,
-            onClose: () => setViewId(null),
-            onAction: (nextAction) => {
-                setViewId(null);
-                if (nextAction.type === 'checkout') {
-                    setHandoutId(nextAction.id);
-                }
-            }
-        }),
         h(RequestDetailModal, {
             context,
             requestId: handoutId,
@@ -1460,7 +1830,7 @@ function AdminConsole({ context }) {
             h(
                 M.Stack,
                 { gap: 2 },
-                h(M.Title, { order: 3 }, 'Loan Manager'),
+                h(M.Title, { order: 3 }, isManager ? 'Loan Manager' : 'My requests and loans'),
                 h(
                     M.Text,
                     { size: 'sm', c: 'dimmed' },
@@ -1541,6 +1911,21 @@ export function renderPluginSettings(context) {
  */
 export function renderLoanPage(context) {
     return h(AdminConsole, { context: withRequestFallback(context) });
+}
+
+/**
+ * Entry point for the native request detail page
+ * (/web/plugin/loan/requests/<pk>).
+ */
+export function renderRequestPage(context) {
+    const match = window.location.pathname.match(/\/plugin\/loan\/requests\/(\d+)/);
+    if (!match) {
+        return h(M.Alert, { color: 'red', title: 'Request not found' }, 'The request reference in the URL is invalid.');
+    }
+    return h(RequestDetailPage, {
+        context: withRequestFallback(context),
+        requestId: Number(match[1])
+    });
 }
 
 /**

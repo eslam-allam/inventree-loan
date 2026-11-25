@@ -185,8 +185,11 @@ def catalog_categories() -> list[dict]:
 
 
 def catalog_parts(
-    search: str = "", limit: int = 20, category_id: int | None = None
-) -> list[dict]:
+    search: str = "",
+    limit: int = 20,
+    category_id: int | None = None,
+    offset: int = 0,
+) -> dict:
     """Return a limited, requester-safe part catalog."""
     from part.models import Part, PartCategory
 
@@ -213,8 +216,9 @@ def catalog_parts(
                 | Q(category__pathstring__startswith=f"{category.pathstring}/")
             )
 
+    total = queryset.count()
     results = []
-    for part in queryset.order_by("name")[:limit]:
+    for part in queryset.order_by("name")[offset : offset + limit]:
         availability = part_availability(part)
         results.append({
             "pk": part.pk,
@@ -229,7 +233,7 @@ def catalog_parts(
             "on_loan": float(availability["on_loan"]),
             "image": _part_image(part),
         })
-    return results
+    return {"results": results, "total": total, "offset": offset, "limit": limit}
 
 
 def part_detail(part_id: int, exclude_request=None) -> dict | None:

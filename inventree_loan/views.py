@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import http_date
 
-from .config import get_native_management_url, get_setting
+from .config import get_native_management_url, get_native_request_url, get_setting
 from .models import Loan, LoanRequest
 from .permissions import (
     can_handout,
@@ -103,10 +103,8 @@ def _base_context(request, page: str, **extra) -> dict:
 
 @login_required
 def dashboard(request):
-    """Send admins to the native InvenTree console; requesters to the form."""
-    if can_view_all(request.user):
-        return redirect(_standard_admin_url())
-    return redirect("plugin:loan:request_new")
+    """Send signed-in users to the single native loan console."""
+    return redirect(_standard_admin_url())
 
 
 def request_new(request):
@@ -136,6 +134,38 @@ def request_new(request):
     # applies to the authenticated account pages.
     context["can_request"] = True
     return render(request, "inventree_loan/request_form.html", context)
+
+
+def public_track_lookup(request):
+    """Look up an anonymous request using its reference and email."""
+    error = ""
+    reference = ""
+    email = ""
+    if request.method == "POST":
+        reference = request.POST.get("reference", "").strip()
+        email = request.POST.get("email", "").strip().lower()
+        loan_request = (
+            LoanRequest.objects.select_related("requester")
+            .filter(reference__iexact=reference)
+            .first()
+        )
+        if loan_request and (
+            loan_request.requester_email_display or ""
+        ).strip().lower() == email:
+            return redirect(
+                "plugin:loan:public_request_detail",
+                token=loan_request.public_token,
+            )
+        error = "No request matched that reference and email address."
+
+    context = _base_context(request, "track-lookup")
+    context.update({
+        "can_request": True,
+        "error": error,
+        "reference": reference,
+        "email": email,
+    })
+    return render(request, "inventree_loan/track_lookup.html", context)
 
 
 def public_request_detail(request, token):
@@ -188,84 +218,26 @@ def public_request_receipt(request, token):
 
 @login_required
 def requests_view(request):
-    """Requesters see only their own requests; managers use the native console."""
-    if can_view_all(request.user):
-        return redirect(_standard_admin_url())
-    queryset = visible_requests(request.user)
-    status_filter = request.GET.get("status", "").strip()
-    if status_filter:
-        queryset = queryset.filter(status=status_filter)
-    return render(
-        request,
-        "inventree_loan/requests.html",
-        _base_context(
-            request,
-            "requests",
-            requests=queryset[:200],
-            status_filter=status_filter,
-        ),
-    )
+    """Redirect to the single native request list."""
+    return redirect(_standard_admin_url())
 
 
 @login_required
 def request_detail(request, pk):
-    """Request detail for the requester; managers use the native console."""
-    if can_view_all(request.user):
-        return redirect(_standard_admin_url())
-    loan_request = request_with_lines(request.user, pk)
-    if loan_request is None:
-        raise PermissionDenied("You cannot view this request")
-    return render(
-        request,
-        "inventree_loan/request_detail.html",
-        _base_context(
-            request,
-            "request-detail",
-            request_obj=loan_request,
-            events=loan_request.events.all()[:100],
-        ),
-    )
+    """Redirect to the native request detail page."""
+    return redirect(get_native_request_url(pk))
 
 
 @login_required
 def loans_view(request):
-    """Requesters see only their own loans; managers use the native console."""
-    if can_view_all(request.user):
-        return redirect(_standard_admin_url())
-    queryset = visible_loans(request.user)
-    status_filter = request.GET.get("status", "").strip()
-    if status_filter:
-        queryset = queryset.filter(status=status_filter)
-    return render(
-        request,
-        "inventree_loan/loans.html",
-        _base_context(
-            request,
-            "loans",
-            loans=queryset[:200],
-            status_filter=status_filter,
-        ),
-    )
+    """Redirect to the single native loan console."""
+    return redirect(_standard_admin_url())
 
 
 @login_required
 def loan_detail(request, pk):
-    """Loan detail for the borrower; managers use the native console."""
-    if can_view_all(request.user):
-        return redirect(_standard_admin_url())
-    loan = loan_with_items(request.user, pk)
-    if loan is None:
-        raise PermissionDenied("You cannot view this loan")
-    return render(
-        request,
-        "inventree_loan/loan_detail.html",
-        _base_context(
-            request,
-            "loan-detail",
-            loan=loan,
-            events=loan.events.all()[:100],
-        ),
-    )
+    """Redirect to the single native loan console."""
+    return redirect(_standard_admin_url())
 
 
 @login_required
@@ -310,15 +282,25 @@ def setup(request):
 
 @login_required
 def receipt(request, pk):
-    """Printable loan receipt with QR code."""
+    """Printable handout, return, or full loan receipt."""
     loan = loan_with_items(request.user, pk)
     if loan is None:
         raise PermissionDenied("You cannot view this loan")
+    receipt_type = request.GET.get("type", "loan")
+    if receipt_type not in {"loan", "handout", "return"}:
+        receipt_type = "loan"
+    if loan.request_id and loan.request.public_token:
+        qr_url = reverse(
+            "plugin:loan:public_request_qr", args=[loan.request.public_token]
+        )
+    else:
+        qr_url = reverse("plugin:loan:qr", args=[loan.pk])
     return render(
         request,
         "inventree_loan/receipt.html",
         {
             "loan": loan,
-            "qr_url": reverse("plugin:loan:qr", args=[loan.pk]),
+            "receipt_type": receipt_type,
+            "qr_url": qr_url,
         },
     )

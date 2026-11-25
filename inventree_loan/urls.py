@@ -46,6 +46,11 @@ urlpatterns = [
     path("", _function_view("inventree_loan.views", "dashboard"), name="dashboard"),
     path("request/", _function_view("inventree_loan.views", "request_new", auth_exempt=True), name="request_new"),
     path(
+        "track/",
+        _function_view("inventree_loan.views", "public_track_lookup", auth_exempt=True),
+        name="public_track_lookup",
+    ),
+    path(
         "track/<uuid:token>/",
         _function_view("inventree_loan.views", "public_request_detail", auth_exempt=True),
         name="public_request_detail",
