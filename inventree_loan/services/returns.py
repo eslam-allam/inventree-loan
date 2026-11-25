@@ -58,7 +58,7 @@ def return_item(
 
     item = (
         LoanItem.objects.select_for_update()
-        .select_related("loan", "stock_item", "original_location", "part")
+        .select_related("loan", "part")
         .get(pk=loan_item.pk)
     )
     if item.lost:
@@ -73,6 +73,23 @@ def return_item(
             {"quantity": _("Only %(remaining)s remain outstanding") % {"remaining": item.remaining_quantity}}
         )
 
+    from stock.models import StockItem
+
+    stock_item = (
+        StockItem.objects.select_for_update().filter(pk=item.stock_item_id).first()
+        if item.stock_item_id
+        else None
+    )
+    if stock_item is None:
+        raise ValidationError(
+            _("The stock item is missing from this loan line. Contact an administrator.")
+        )
+    if stock_item.serialized and quantity != item.remaining_quantity:
+        raise ValidationError(
+            _("Serialized stock items must be returned in full")
+        )
+    stock_item._loan_plugin_allow = True
+
     destination = location or item.original_location
     if destination is None and item.original_stock_item is not None:
         destination = item.original_stock_item.location
@@ -83,20 +100,9 @@ def return_item(
         raise ValidationError(
             _("The original stock location is missing. Select a return location.")
         )
-
     if loan_location is not None and destination.pk == loan_location.pk:
         raise ValidationError(_("Items cannot be returned to the loan location"))
 
-    stock_item = item.stock_item
-    if stock_item is None:
-        raise ValidationError(
-            _("The stock item is missing from this loan line. Contact an administrator.")
-        )
-    if stock_item.serialized and quantity != item.remaining_quantity:
-        raise ValidationError(
-            _("Serialized stock items must be returned in full")
-        )
-    stock_item._loan_plugin_allow = True
     note = f"Returned ({item.loan.reference})"
     if clean_notes:
         note = f"{note}: {clean_notes}"
@@ -188,20 +194,26 @@ def mark_lost(loan_item: LoanItem, actor, notes: str = "") -> LoanItem:
 
     item = (
         LoanItem.objects.select_for_update()
-        .select_related("loan", "stock_item", "part")
+        .select_related("loan", "part")
         .get(pk=loan_item.pk)
     )
     if not item.is_open:
         raise ValidationError(_("Only open loan items can be marked lost"))
 
     clean_notes = (notes or "").strip()
-    from stock.status_codes import StockStatus
+    from stock.models import StockItem
 
-    stock_item = item.stock_item
+    stock_item = (
+        StockItem.objects.select_for_update().filter(pk=item.stock_item_id).first()
+        if item.stock_item_id
+        else None
+    )
     if stock_item is None:
         raise ValidationError(
             _("The stock item is missing from this loan line. Contact an administrator.")
         )
+    from stock.status_codes import StockStatus
+
     stock_item._loan_plugin_allow = True
     stock_item.set_status(StockStatus.LOST.value)
     stock_item.save()

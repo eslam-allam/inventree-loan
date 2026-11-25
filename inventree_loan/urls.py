@@ -1,84 +1,149 @@
-"""URL routes for the loan plugin."""
+"""URL routes for the loan plugin.
+
+Views are imported lazily so that the plugin can be initialised before the
+Django app (and its models) has been added to ``INSTALLED_APPS`` by AppMixin.
+"""
+
+from importlib import import_module
 
 from django.urls import path
 
-from . import views
-from .api.views import (
-    CatalogView,
-    CheckoutView,
-    ExportLoansView,
-    ExportRequestsView,
-    LoanDetailView,
-    LoanItemLostView,
-    LoanListView,
-    LoanRenewView,
-    LoanReturnView,
-    QRCodeView,
-    RequestApproveView,
-    RequestCancelView,
-    RequestDetailView,
-    RequestListCreateView,
-    RequestRejectView,
-    ScanView,
-    StaffDetailView,
-    StaffListCreateView,
-    StatsView,
-    UserSearchView,
-)
+
+def _function_view(module_name: str, attribute: str):
+    """Return a lazy wrapper around a function-based view."""
+
+    def view(request, *args, **kwargs):
+        module = import_module(module_name)
+        return getattr(module, attribute)(request, *args, **kwargs)
+
+    view.__name__ = f"lazy_{attribute}"
+    return view
+
+
+def _class_view(module_name: str, attribute: str):
+    """Return a lazy wrapper around a class-based view."""
+
+    def view(request, *args, **kwargs):
+        module = import_module(module_name)
+        return getattr(module, attribute).as_view()(request, *args, **kwargs)
+
+    view.__name__ = f"lazy_{attribute}"
+    return view
+
 
 urlpatterns = [
     # Pages
-    path("", views.dashboard, name="dashboard"),
-    path("request/", views.request_new, name="request_new"),
-    path("requests/", views.requests_view, name="requests"),
-    path("requests/<int:pk>/", views.request_detail, name="request_detail"),
-    path("loans/", views.loans_view, name="loans"),
-    path("loans/<int:pk>/", views.loan_detail, name="loan_detail"),
-    path("loans/<int:pk>/receipt/", views.receipt, name="receipt"),
-    path("checkout/", views.checkout, name="checkout"),
-    path("return/", views.return_page, name="return"),
-    path("history/", views.history, name="history"),
-    path("staff/", views.staff, name="staff"),
-    path("setup/", views.setup, name="setup"),
+    path("", _function_view("inventree_loan.views", "dashboard"), name="dashboard"),
+    path("request/", _function_view("inventree_loan.views", "request_new"), name="request_new"),
+    path("requests/", _function_view("inventree_loan.views", "requests_view"), name="requests"),
+    path(
+        "requests/<int:pk>/",
+        _function_view("inventree_loan.views", "request_detail"),
+        name="request_detail",
+    ),
+    path("loans/", _function_view("inventree_loan.views", "loans_view"), name="loans"),
+    path(
+        "loans/<int:pk>/",
+        _function_view("inventree_loan.views", "loan_detail"),
+        name="loan_detail",
+    ),
+    path(
+        "loans/<int:pk>/receipt/",
+        _function_view("inventree_loan.views", "receipt"),
+        name="receipt",
+    ),
+    path("checkout/", _function_view("inventree_loan.views", "checkout"), name="checkout"),
+    path("return/", _function_view("inventree_loan.views", "return_page"), name="return"),
+    path("history/", _function_view("inventree_loan.views", "history"), name="history"),
+    path("staff/", _function_view("inventree_loan.views", "staff"), name="staff"),
+    path("setup/", _function_view("inventree_loan.views", "setup"), name="setup"),
     # JSON API
-    path("api/catalog/", CatalogView.as_view(), name="api_catalog"),
-    path("api/requests/", RequestListCreateView.as_view(), name="api_requests"),
+    path(
+        "api/catalog/",
+        _class_view("inventree_loan.api.views", "CatalogView"),
+        name="api_catalog",
+    ),
+    path(
+        "api/requests/",
+        _class_view("inventree_loan.api.views", "RequestListCreateView"),
+        name="api_requests",
+    ),
     path(
         "api/requests/<int:pk>/",
-        RequestDetailView.as_view(),
+        _class_view("inventree_loan.api.views", "RequestDetailView"),
         name="api_request_detail",
     ),
     path(
         "api/requests/<int:pk>/approve/",
-        RequestApproveView.as_view(),
+        _class_view("inventree_loan.api.views", "RequestApproveView"),
         name="api_request_approve",
     ),
     path(
         "api/requests/<int:pk>/reject/",
-        RequestRejectView.as_view(),
+        _class_view("inventree_loan.api.views", "RequestRejectView"),
         name="api_request_reject",
     ),
     path(
         "api/requests/<int:pk>/cancel/",
-        RequestCancelView.as_view(),
+        _class_view("inventree_loan.api.views", "RequestCancelView"),
         name="api_request_cancel",
     ),
-    path("api/loans/", LoanListView.as_view(), name="api_loans"),
-    path("api/loans/<int:pk>/", LoanDetailView.as_view(), name="api_loan_detail"),
-    path("api/checkout/", CheckoutView.as_view(), name="api_checkout"),
-    path("api/loans/<int:pk>/return/", LoanReturnView.as_view(), name="api_loan_return"),
-    path("api/loans/<int:pk>/renew/", LoanRenewView.as_view(), name="api_loan_renew"),
+    path(
+        "api/loans/",
+        _class_view("inventree_loan.api.views", "LoanListView"),
+        name="api_loans",
+    ),
+    path(
+        "api/loans/<int:pk>/",
+        _class_view("inventree_loan.api.views", "LoanDetailView"),
+        name="api_loan_detail",
+    ),
+    path(
+        "api/checkout/",
+        _class_view("inventree_loan.api.views", "CheckoutView"),
+        name="api_checkout",
+    ),
+    path(
+        "api/loans/<int:pk>/return/",
+        _class_view("inventree_loan.api.views", "LoanReturnView"),
+        name="api_loan_return",
+    ),
+    path(
+        "api/loans/<int:pk>/renew/",
+        _class_view("inventree_loan.api.views", "LoanRenewView"),
+        name="api_loan_renew",
+    ),
     path(
         "api/loans/<int:pk>/items/<int:item_pk>/lost/",
-        LoanItemLostView.as_view(),
+        _class_view("inventree_loan.api.views", "LoanItemLostView"),
         name="api_loan_item_lost",
     ),
-    path("api/scan/", ScanView.as_view(), name="api_scan"),
-    path("api/stats/", StatsView.as_view(), name="api_stats"),
-    path("api/user-search/", UserSearchView.as_view(), name="api_user_search"),
-    path("api/staff/", StaffListCreateView.as_view(), name="api_staff"),
-    path("api/staff/<int:pk>/", StaffDetailView.as_view(), name="api_staff_detail"),
-    path("api/export/requests.csv", ExportRequestsView.as_view(), name="api_export_requests"),
-    path("api/export/loans.csv", ExportLoansView.as_view(), name="api_export_loans"),
-    path("qr/<int:pk>.svg", QRCodeView.as_view(), name="qr"),
+    path("api/scan/", _class_view("inventree_loan.api.views", "ScanView"), name="api_scan"),
+    path("api/stats/", _class_view("inventree_loan.api.views", "StatsView"), name="api_stats"),
+    path(
+        "api/user-search/",
+        _class_view("inventree_loan.api.views", "UserSearchView"),
+        name="api_user_search",
+    ),
+    path(
+        "api/staff/",
+        _class_view("inventree_loan.api.views", "StaffListCreateView"),
+        name="api_staff",
+    ),
+    path(
+        "api/staff/<int:pk>/",
+        _class_view("inventree_loan.api.views", "StaffDetailView"),
+        name="api_staff_detail",
+    ),
+    path(
+        "api/export/requests.csv",
+        _class_view("inventree_loan.api.views", "ExportRequestsView"),
+        name="api_export_requests",
+    ),
+    path(
+        "api/export/loans.csv",
+        _class_view("inventree_loan.api.views", "ExportLoansView"),
+        name="api_export_loans",
+    ),
+    path("qr/<int:pk>.svg", _class_view("inventree_loan.api.views", "QRCodeView"), name="qr"),
 ]

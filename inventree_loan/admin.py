@@ -5,13 +5,18 @@ from django.contrib import admin
 from .models import Loan, LoanEvent, LoanItem, LoanRequest, LoanRequestLine, LoanStaff
 
 
+def _register(model, admin_class):
+    """Register a model once, tolerating AppMixin admin reloads."""
+    if not admin.site.is_registered(model):
+        admin.site.register(model, admin_class)
+
+
 class LoanRequestLineInline(admin.TabularInline):
     model = LoanRequestLine
     extra = 0
     raw_id_fields = ("part", "stock_item")
 
 
-@admin.register(LoanRequest)
 class LoanRequestAdmin(admin.ModelAdmin):
     list_display = ("reference", "requester", "status", "needed_by", "return_by", "created")
     list_filter = ("status",)
@@ -33,7 +38,6 @@ class LoanItemInline(admin.TabularInline):
     )
 
 
-@admin.register(Loan)
 class LoanAdmin(admin.ModelAdmin):
     list_display = ("reference", "borrower", "status", "issued_at", "due_at", "returned_at")
     list_filter = ("status",)
@@ -43,7 +47,6 @@ class LoanAdmin(admin.ModelAdmin):
     inlines = [LoanItemInline]
 
 
-@admin.register(LoanItem)
 class LoanItemAdmin(admin.ModelAdmin):
     list_display = ("loan", "part", "quantity", "returned_quantity", "lost", "returned_at")
     list_filter = ("lost",)
@@ -51,7 +54,6 @@ class LoanItemAdmin(admin.ModelAdmin):
     raw_id_fields = ("loan", "part", "stock_item", "original_stock_item", "original_location")
 
 
-@admin.register(LoanEvent)
 class LoanEventAdmin(admin.ModelAdmin):
     list_display = ("created", "event_type", "actor_name", "request", "loan")
     list_filter = ("event_type",)
@@ -78,9 +80,15 @@ class LoanEventAdmin(admin.ModelAdmin):
         return False
 
 
-@admin.register(LoanStaff)
 class LoanStaffAdmin(admin.ModelAdmin):
     list_display = ("user", "role", "active", "created_by", "created")
     list_filter = ("role", "active")
     search_fields = ("user__username", "user__email")
     raw_id_fields = ("user", "created_by")
+
+
+_register(LoanRequest, LoanRequestAdmin)
+_register(Loan, LoanAdmin)
+_register(LoanItem, LoanItemAdmin)
+_register(LoanEvent, LoanEventAdmin)
+_register(LoanStaff, LoanStaffAdmin)
