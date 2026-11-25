@@ -1,0 +1,55 @@
+{% load static i18n %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{% block title %}{% trans "Request a loan" %}{% endblock %} · InvenTree</title>
+    <link rel="stylesheet" href="{% static 'plugins/loan/loan.css' %}">
+</head>
+<body class="loan-body loan-external" data-page="{{ page|default:'' }}">
+<a class="loan-skip-link" href="#loan-main">{% trans "Skip to content" %}</a>
+
+<header class="ext-header">
+    <div class="ext-header-inner">
+        <a class="ext-brand" href="{% url 'plugin:loan:request_new' %}">
+            <img class="ext-logo" src="{% static 'web/inventree.svg' %}" alt="InvenTree">
+            <span>{% trans "Loan request" %}</span>
+        </a>
+
+        <nav class="ext-nav" aria-label="{% trans 'Loan request navigation' %}">
+            <a class="ext-nav-link {% if page == 'request-new' %}is-active{% endif %}" href="{% url 'plugin:loan:request_new' %}">{% trans "New request" %}</a>
+            <a class="ext-nav-link {% if page == 'requests' or page == 'request-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:requests' %}">{% trans "My requests" %}</a>
+            <a class="ext-nav-link {% if page == 'loans' or page == 'loan-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}">{% trans "My loans" %}</a>
+        </nav>
+
+        <div class="ext-user">
+            {% if is_manager %}
+                <a class="loan-btn loan-btn-sm" href="{% url 'plugin:loan:dashboard' %}">{% trans "Loan desk" %}</a>
+            {% endif %}
+            <span class="loan-muted">{{ request.user.get_full_name|default:request.user.username }}</span>
+            <a class="loan-link-muted" href="/web/">{% trans "InvenTree" %}</a>
+        </div>
+    </div>
+</header>
+
+{% if messages %}
+    <div class="loan-messages" role="status" aria-live="polite">
+        {% for message in messages %}
+            <div class="loan-alert {% if message.tags %}loan-alert-{{ message.tags }}{% endif %}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<main id="loan-main" class="loan-main" tabindex="-1">
+    {% block content %}{% endblock %}
+</main>
+
+{% include "inventree_loan/_js_config.html" %}
+<script src="{% static 'plugins/loan/loan.js' %}" defer></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

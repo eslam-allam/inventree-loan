@@ -52,8 +52,29 @@ Then restart InvenTree, open the plugin management page
 pip install -e .
 ```
 
-Restart the InvenTree server after installation. Changes to Python code reload
-automatically in debug mode.
+Restart the InvenTree server after installation.
+
+#### Docker development workflow
+
+When InvenTree runs in Docker, the container filesystem is ephemeral. Keep the
+editable install in a mounted plugin directory and record it in
+`data/plugins.txt`:
+
+```text
+-e /home/inventree/data/plugins/inventree-loan
+```
+
+After changing static assets (the JavaScript UI or CSS), collect them and restart
+both the server and the background worker:
+
+```bash
+docker exec -w /home/inventree/src/backend/InvenTree inventree-server \
+    python manage.py collectplugins
+docker restart inventree-server inventree-worker
+```
+
+Python and template changes only need the restart. Plugins are discovered at
+startup, so a restart is required after any plugin code change.
 
 ### Database migration
 
@@ -70,6 +91,25 @@ or, in a source install:
 python manage.py migrate
 ```
 
+## Using the plugin
+
+The plugin adds a **Loans** item to the InvenTree navigation bar and a **Loans**
+card to the dashboard widget list.
+
+- **Loans (navigation)** opens the native InvenTree Plugins page filtered to
+  **InvenTreeLoan**. Select the plugin row to open the standard plugin drawer,
+  then expand **Plugin Configuration** to use the Loan Manager console.
+- **Loans (dashboard widget)** provides a requester shortcut and an
+  **Open loan desk** button that opens the Loan Manager console in a full-screen
+  native Mantine modal.
+- Requesters use the standalone request form at `/plugin/loan/request/` for new
+  requests, their request history, and their own loans.
+
+The internal console is built from standard InvenTree React and Mantine
+components, so it follows the instance theme, language, and accessibility
+settings. It contains tabs for requests, loans, handout, staff, setup, and
+history.
+
 ## Initial setup
 
 The plugin needs two stock objects:
@@ -78,13 +118,8 @@ The plugin needs two stock objects:
 2. A custom **On Loan** stock status whose logical value is `Quarantined`
    (so InvenTree treats loaned items as unavailable).
 
-Run the setup wizard as a loan administrator:
-
-```text
-/plugin/loan/setup/
-```
-
-Or use the management command:
+Run the setup action from the **Setup** tab of the Loan Manager console, or use
+the management command:
 
 ```bash
 python manage.py loan_setup --create-location --location-name "On Loan"
@@ -109,7 +144,7 @@ The plugin has its own roles, separate from InvenTree's stock roles:
 
 Superusers always have full plugin access.
 
-Grant the first role from the plugin's **Staff** page or with:
+Grant the first role from the **Staff** tab of the Loan Manager console or with:
 
 ```bash
 python manage.py loan_add_manager <username> --role admin
@@ -137,16 +172,16 @@ also need the normal InvenTree stock change role.
 
 ### Approve or reject
 
-Approvers open **Requests → Pending** and choose **Approve** or **Reject**.
-A decision note can be added and is visible to the requester.
+Approvers open the Loan Manager console and use the **Requests** tab to
+**Approve** or **Reject**. A decision note can be added and is visible to the
+requester.
 
 ### Hand out
 
-1. Open **Hand out**.
-2. Choose an approved request, or select a borrower for a walk-in loan.
-3. Scan items or search the catalog and add them to the loan cart.
-4. Confirm the due date and submit.
-5. Print the receipt or show the loan QR.
+1. Open the **Handout** tab in the Loan Manager console.
+2. Choose an approved request.
+3. Confirm the due date and submit.
+4. Print the receipt or show the loan QR.
 
 The service selects available stock items, moves or splits the requested quantities
 to the On Loan location, applies the On Loan status, and records the original
@@ -154,8 +189,8 @@ location and status.
 
 ### Return
 
-1. Open **Return**.
-2. Scan the loan QR or a stock item barcode.
+1. Open the **Loans** tab in the Loan Manager console.
+2. Choose the loan and select **Return**.
 3. Adjust return quantities and select the condition.
 4. Confirm.
 

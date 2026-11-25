@@ -38,6 +38,7 @@ from ..permissions import (
 from ..selectors import (
     loan_with_items,
     request_with_lines,
+    visible_events,
     visible_loans,
     visible_requests,
 )
@@ -51,6 +52,12 @@ from ..services.requests import (
     reject_request,
 )
 from ..services.returns import mark_lost, renew_loan, return_loan
+from ..services.setup import (
+    ensure_setup,
+    get_loan_location,
+    get_on_loan_status,
+    is_configured,
+)
 from .serializers import (
     CheckoutSerializer,
     DecisionSerializer,
@@ -416,6 +423,64 @@ class ScanView(LoanAPIView):
         serializer = ScanSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         return Response(resolve_barcode(request.user, serializer.validated_data["barcode"]))
+
+
+def _setup_data() -> dict:
+    location = get_loan_location()
+    status = get_on_loan_status()
+    return {
+        "configured": is_configured(),
+        "location": getattr(location, "pathstring", ""),
+        "location_id": getattr(location, "pk", None),
+        "status": getattr(status, "label", ""),
+        "status_key": getattr(status, "key", None),
+        "status_logical_key": getattr(status, "logical_key", None),
+    }
+
+
+class SetupView(LoanAPIView):
+    """Read or repair the loan stock configuration."""
+
+    def get(self, request):
+        if not can_manage_staff(request.user):
+            raise PermissionDenied("You do not have permission to configure loans")
+        return Response(_setup_data())
+
+    def post(self, request):
+        if not can_manage_staff(request.user):
+            raise PermissionDenied("You do not have permission to configure loans")
+        try:
+            ensure_setup(create_location=True)
+        except Exception as exc:
+            raise ValidationError(str(exc)) from None
+        return Response(_setup_data())
+
+
+class EventListView(LoanAPIView):
+    """Recent audit events for the admin console."""
+
+    def get(self, request):
+        if not can_view_all(request.user):
+            raise PermissionDenied("You do not have permission to view history")
+        queryset = visible_events(request.user)
+        event_type = request.GET.get("event_type", "").strip()
+        if event_type:
+            queryset = queryset.filter(event_type=event_type)
+        return Response({
+            "results": [
+                {
+                    "pk": event.pk,
+                    "event_type": event.event_type,
+                    "event_label": event.get_event_type_display(),
+                    "actor": event.actor_name,
+                    "notes": event.notes,
+                    "created": _iso(event.created),
+                    "loan_reference": event.loan.reference if event.loan else "",
+                    "request_reference": event.request.reference if event.request else "",
+                }
+                for event in queryset[:300]
+            ]
+        })
 
 
 class StatsView(LoanAPIView):

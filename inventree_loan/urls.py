@@ -35,6 +35,11 @@ urlpatterns = [
     # Pages
     path("", _function_view("inventree_loan.views", "dashboard"), name="dashboard"),
     path("request/", _function_view("inventree_loan.views", "request_new"), name="request_new"),
+    path(
+        "external/",
+        _function_view("inventree_loan.views", "request_new"),
+        name="external",
+    ),
     path("requests/", _function_view("inventree_loan.views", "requests_view"), name="requests"),
     path(
         "requests/<int:pk>/",
@@ -120,6 +125,12 @@ urlpatterns = [
     ),
     path("api/scan/", _class_view("inventree_loan.api.views", "ScanView"), name="api_scan"),
     path("api/stats/", _class_view("inventree_loan.api.views", "StatsView"), name="api_stats"),
+    path("api/setup/", _class_view("inventree_loan.api.views", "SetupView"), name="api_setup"),
+    path(
+        "api/events/",
+        _class_view("inventree_loan.api.views", "EventListView"),
+        name="api_events",
+    ),
     path(
         "api/user-search/",
         _class_view("inventree_loan.api.views", "UserSearchView"),

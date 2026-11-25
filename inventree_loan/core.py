@@ -46,6 +46,10 @@ class InvenTreeLoanPlugin(
     MIN_VERSION = "1.5.0"
     MAX_VERSION = "1.5.99"
 
+    # Native React / Mantine admin UI, rendered inside the standard InvenTree
+    # plugin administration page.
+    ADMIN_SOURCE = "admin.js:renderPluginSettings"
+
     NAVIGATION = [
         {
             "name": _("Loans"),
@@ -221,19 +225,69 @@ class InvenTreeLoanPlugin(
         return urlpatterns
 
     def get_ui_navigation_items(self, request, context, **kwargs):
-        """Add a Loans entry to the React navigation."""
-        try:
-            url = reverse("plugin:loan:dashboard")
-        except Exception:  # pragma: no cover - URL registry may be loading
-            return []
+        """Add a Loans tab which opens the native plugin administration page."""
+        from .config import get_admin_console_url
+
         return [
             {
                 "key": "loan-manager",
                 "title": str(_("Loans")),
                 "icon": "ti:box:outline",
-                "options": {"url": url},
+                "options": {"url": get_admin_console_url()},
             }
         ]
+
+    def get_ui_dashboard_items(self, request, context, **kwargs):
+        """Add a Loan Manager / Request a loan card to the standard dashboard."""
+        if not request.user.is_authenticated:
+            return []
+
+        from .config import get_admin_console_url
+        from .permissions import can_view_all
+
+        try:
+            request_url = reverse("plugin:loan:request_new")
+        except Exception:  # pragma: no cover
+            return []
+
+        return [
+            {
+                "key": "loan-entry",
+                "title": str(_("Loans")),
+                "description": str(
+                    _("Request a loan or open the loan management console.")
+                ),
+                "icon": "ti:box:outline",
+                "source": self.plugin_static_file(
+                    "admin.js:renderLoanDashboardItem"
+                ),
+                "context": {
+                    "is_manager": can_view_all(request.user),
+                    "request_url": request_url,
+                    "admin_url": get_admin_console_url(),
+                },
+                "options": {"width": 3, "height": 2},
+            }
+        ]
+
+    def get_admin_context(self) -> dict:
+        """Context passed to the native plugin administration UI."""
+        from .services.setup import (
+            get_loan_location,
+            get_on_loan_status,
+            is_configured,
+        )
+
+        location = get_loan_location()
+        status = get_on_loan_status()
+        return {
+            "setup_configured": is_configured(),
+            "loan_location": getattr(location, "pathstring", ""),
+            "loan_location_id": getattr(location, "pk", None),
+            "on_loan_status": getattr(status, "label", ""),
+            "on_loan_status_key": getattr(status, "key", None),
+            "request_url": reverse("plugin:loan:request_new"),
+        }
 
     def send_due_reminders(self):
         """Scheduled task entry point."""

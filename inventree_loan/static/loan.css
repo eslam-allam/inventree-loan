@@ -701,3 +701,55 @@ body.loan-body {
 .fa-xmark::before { content: "\eb55"; }
 .fa-spin { animation: loan-icon-spin 1s linear infinite; }
 @keyframes loan-icon-spin { to { transform: rotate(360deg); } }
+
+/* External requester layout */
+.ext-header {
+    background: var(--loan-surface);
+    border-bottom: 1px solid var(--loan-border);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+.ext-header-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    min-height: 64px;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+.ext-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--loan-text) !important;
+    font-weight: 700;
+    text-decoration: none !important;
+    white-space: nowrap;
+}
+.ext-logo { height: 30px; width: auto; }
+.ext-nav { display: flex; align-items: center; gap: 4px; flex: 1; flex-wrap: wrap; }
+.ext-nav-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 10px;
+    border-radius: 7px;
+    color: var(--loan-muted) !important;
+    font-size: 13.5px;
+    font-weight: 650;
+    text-decoration: none !important;
+}
+.ext-nav-link:hover { background: var(--loan-surface-2); color: var(--loan-text) !important; }
+.ext-nav-link.is-active { background: var(--loan-surface-2); color: var(--loan-text) !important; }
+.ext-user { display: flex; align-items: center; gap: 10px; font-size: 13px; white-space: nowrap; }
+.loan-external .loan-main { max-width: 1180px; }
+@media (max-width: 780px) {
+    .ext-header { position: static; }
+    .ext-header-inner { padding: 10px 14px; gap: 10px; }
+    .ext-nav { order: 3; width: 100%; flex: 1 0 100%; }
+    .ext-user { margin-left: auto; }
+    .loan-external .loan-main { padding: 18px 14px 40px; }
+}

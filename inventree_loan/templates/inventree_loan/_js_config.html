@@ -1,0 +1,34 @@
+<script>
+window.LOAN = {
+    page: "{{ page|escapejs }}",
+    csrf: "{{ csrf_token }}",
+    user: {
+        id: {{ request.user.pk|default:"null" }},
+        name: "{{ request.user.get_full_name|default:request.user.username|escapejs }}",
+        isManager: {{ is_manager|yesno:"true,false" }},
+        isDesk: {{ is_desk|yesno:"true,false" }},
+        isAdmin: {{ is_admin|yesno:"true,false" }}
+    },
+    api: {
+        catalog: "{% url 'plugin:loan:api_catalog' %}",
+        requests: "{% url 'plugin:loan:api_requests' %}",
+        loans: "{% url 'plugin:loan:api_loans' %}",
+        checkout: "{% url 'plugin:loan:api_checkout' %}",
+        scan: "{% url 'plugin:loan:api_scan' %}",
+        stats: "{% url 'plugin:loan:api_stats' %}",
+        userSearch: "{% url 'plugin:loan:api_user_search' %}",
+        staff: "{% url 'plugin:loan:api_staff' %}"
+    },
+    urls: {
+        dashboard: "{% url 'plugin:loan:dashboard' %}",
+        requests: "{% url 'plugin:loan:requests' %}",
+        requestNew: "{% url 'plugin:loan:request_new' %}",
+        requestDetail: "{% url 'plugin:loan:requests' %}",
+        loans: "{% url 'plugin:loan:loans' %}",
+        loanDetail: "{% url 'plugin:loan:loans' %}",
+        checkout: "{% url 'plugin:loan:checkout' %}",
+        returnPage: "{% url 'plugin:loan:return' %}",
+        receipt: "{% url 'plugin:loan:loans' %}"
+    }
+};
+</script>

@@ -11,6 +11,24 @@ from typing import Any
 
 PLUGIN_SLUG = "loan"
 
+#: Name used to filter the native plugin list to this plugin.
+ADMIN_SEARCH_TERM = "InvenTreeLoan"
+
+
+def get_admin_console_url() -> str:
+    """Return the native InvenTree page which hosts the loan console.
+
+    InvenTree 1.5.x does not expose a full-page plugin route. The native plugin
+    administration page is the standard host for plugin configuration UIs, so
+    the navigation item links to that page filtered to this plugin. Opening the
+    InvenTreeLoan row shows the standard plugin drawer, including the
+    ``Plugin Configuration`` panel rendered by ``admin.js``.
+    """
+    from django.conf import settings
+
+    base = getattr(settings, "FRONTEND_URL_BASE", "web")
+    return f"/{base}/settings/admin/plugin?search={ADMIN_SEARCH_TERM}"
+
 
 def get_plugin():
     """Return the active loan plugin instance, if available."""
