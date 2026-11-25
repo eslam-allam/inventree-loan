@@ -5,6 +5,8 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from InvenTree.unit_test import InvenTreeAPITestCase
 from part.models import Part, PartCategory
+from stock.models import StockItem, StockLocation
+from stock.status_codes import StockStatus
 
 TEST_SIGNATURE = "data:image/png;base64,AAAA"
 
@@ -33,6 +35,13 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         self.category = PartCategory.objects.create(name="API Loan Category")
         self.part = Part.objects.create(
             name="API Loan Part", category=self.category, IPN="API-LOAN"
+        )
+        self.location = StockLocation.objects.create(name="API Loan Shelf")
+        StockItem.objects.create(
+            part=self.part,
+            location=self.location,
+            quantity=Decimal("10"),
+            status=StockStatus.OK.value,
         )
         self.request = LoanRequest.objects.create(
             requester=self.user,

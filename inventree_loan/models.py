@@ -213,6 +213,11 @@ class LoanRequest(LoanBaseModel):
         return total or Decimal(0)
 
     @property
+    def is_fully_allocated(self) -> bool:
+        """Return True when every line has stock allocated."""
+        return all(line.is_fully_allocated for line in self.lines.all())
+
+    @property
     def requester_display(self) -> str:
         """Name shown for authenticated and anonymous requesters."""
         if self.requester_name:
@@ -289,6 +294,22 @@ class LoanRequestLine(models.Model):
     def __str__(self) -> str:
         return f"{self.part} x {self.quantity}"
 
+    @property
+    def allocated_quantity(self) -> Decimal:
+        """Quantity planned across this line's stock allocations."""
+        total = self.allocations.aggregate(total=models.Sum("quantity"))["total"]
+        return total or Decimal(0)
+
+    @property
+    def unallocated_quantity(self) -> Decimal:
+        """Quantity on this line which still needs stock allocated."""
+        return max(self.quantity - self.allocated_quantity, Decimal(0))
+
+    @property
+    def is_fully_allocated(self) -> bool:
+        """Return True when the line has enough allocated stock."""
+        return self.allocated_quantity >= self.quantity
+
     def clean(self):
         """Validate line data."""
         if self.quantity is None or self.quantity <= 0:
@@ -297,6 +318,74 @@ class LoanRequestLine(models.Model):
             if self.stock_item.part_id != self.part_id:
                 raise ValidationError(
                     {"stock_item": _("The stock item does not belong to the selected part")}
+                )
+            if self.stock_item.serialized and self.quantity != 1:
+                raise ValidationError(
+                    {"quantity": _("A serialized stock item must have quantity 1")}
+                )
+
+
+class LoanRequestAllocation(LoanBaseModel):
+    """A planned stock allocation for a request line.
+
+    Allocations do not move stock.  They record which physical items the loan
+    desk intends to hand out, so staff can review and adjust the allocation
+    before the loan is issued.
+    """
+
+    line = models.ForeignKey(
+        LoanRequestLine,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+        verbose_name=_("Request line"),
+    )
+    stock_item = models.ForeignKey(
+        "stock.StockItem",
+        on_delete=models.PROTECT,
+        related_name="loan_request_allocations",
+        verbose_name=_("Stock item"),
+    )
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=5,
+        default=Decimal("1"),
+        verbose_name=_("Quantity"),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="loan_request_allocations",
+        verbose_name=_("Allocated by"),
+    )
+
+    class Meta:
+        ordering = ["line_id", "pk"]
+        verbose_name = _("Loan request allocation")
+        verbose_name_plural = _("Loan request allocations")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["line", "stock_item"],
+                name="unique_loan_request_line_stock_item",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0),
+                name="loan_allocation_quantity_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.line.part} / {self.stock_item} x {self.quantity}"
+
+    def clean(self):
+        """Validate the allocation against its line and stock item."""
+        if self.quantity is None or self.quantity <= 0:
+            raise ValidationError({"quantity": _("Quantity must be greater than zero")})
+        if self.stock_item_id and self.line_id:
+            if self.stock_item.part_id != self.line.part_id:
+                raise ValidationError(
+                    {"stock_item": _("The stock item does not belong to this request line")}
                 )
             if self.stock_item.serialized and self.quantity != 1:
                 raise ValidationError(

@@ -138,3 +138,31 @@ class LostSerializer(serializers.Serializer):
     """Mark a loan line lost."""
 
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class RequestAllocateSerializer(serializers.Serializer):
+    """Auto-allocate a request, or add one manual allocation."""
+
+    auto = serializers.BooleanField(default=False)
+    clear = serializers.BooleanField(default=False)
+    line_id = serializers.IntegerField(required=False)
+    stock_item_id = serializers.IntegerField(required=False)
+    quantity = serializers.DecimalField(
+        max_digits=15, decimal_places=5, required=False, default=1
+    )
+
+    def validate(self, attrs):
+        if attrs.get("auto") or attrs.get("clear"):
+            return attrs
+        if not attrs.get("line_id") or not attrs.get("stock_item_id"):
+            raise serializers.ValidationError(
+                "Provide auto=true, clear=true, or line_id plus stock_item_id"
+            )
+        return attrs
+
+
+class PublicRequestLookupSerializer(serializers.Serializer):
+    """Look up an anonymous request by reference and email."""
+
+    reference = serializers.CharField(max_length=32)
+    email = serializers.EmailField()

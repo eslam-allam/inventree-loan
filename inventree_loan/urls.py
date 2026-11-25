@@ -51,6 +51,16 @@ urlpatterns = [
         name="public_request_detail",
     ),
     path(
+        "track/<uuid:token>/receipt/",
+        _function_view("inventree_loan.views", "public_request_receipt", auth_exempt=True),
+        name="public_request_receipt",
+    ),
+    path(
+        "track/<uuid:token>/qr.svg",
+        _class_view("inventree_loan.api.views", "PublicRequestQRCodeView", auth_exempt=True),
+        name="public_request_qr",
+    ),
+    path(
         "external/",
         _function_view("inventree_loan.views", "request_new", auth_exempt=True),
         name="external",
@@ -109,6 +119,11 @@ urlpatterns = [
         name="api_public_requests",
     ),
     path(
+        "api/public/requests/lookup/",
+        _class_view("inventree_loan.api.views", "PublicRequestLookupView", auth_exempt=True),
+        name="api_public_request_lookup",
+    ),
+    path(
         "api/public/requests/<uuid:token>/",
         _class_view("inventree_loan.api.views", "PublicRequestDetailView", auth_exempt=True),
         name="api_public_request_detail",
@@ -143,6 +158,21 @@ urlpatterns = [
         "api/requests/<int:pk>/cancel/",
         _class_view("inventree_loan.api.views", "RequestCancelView"),
         name="api_request_cancel",
+    ),
+    path(
+        "api/requests/<int:pk>/allocate/",
+        _class_view("inventree_loan.api.views", "RequestAllocateView"),
+        name="api_request_allocate",
+    ),
+    path(
+        "api/requests/<int:pk>/allocations/candidates/",
+        _class_view("inventree_loan.api.views", "RequestAllocationCandidatesView"),
+        name="api_request_allocation_candidates",
+    ),
+    path(
+        "api/requests/<int:pk>/allocations/<int:allocation_pk>/",
+        _class_view("inventree_loan.api.views", "RequestAllocationDeleteView"),
+        name="api_request_allocation_delete",
     ),
     path(
         "api/loans/",

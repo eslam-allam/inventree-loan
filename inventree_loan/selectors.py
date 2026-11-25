@@ -12,7 +12,7 @@ def visible_requests(user) -> QuerySet[LoanRequest]:
     """Return only requests the user is allowed to see."""
     queryset = (
         LoanRequest.objects.select_related("requester", "decided_by")
-        .prefetch_related("lines__part", "lines__stock_item")
+        .prefetch_related("lines__part", "lines__stock_item", "lines__allocations__stock_item")
     )
     if can_view_all(user):
         return queryset
@@ -54,7 +54,7 @@ def request_with_lines(user, pk: int) -> LoanRequest | None:
     """Return a visible request with its lines preloaded."""
     return (
         visible_requests(user)
-        .prefetch_related("lines__part", "lines__stock_item", "events")
+        .prefetch_related("lines__part", "lines__stock_item", "lines__allocations__stock_item", "events")
         .filter(pk=pk)
         .first()
     )

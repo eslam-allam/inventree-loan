@@ -22,7 +22,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
-from ..config import get_setting
+from ..config import get_frontend_base, get_setting
 from ..models import (
     Loan,
     LoanEvent,
@@ -46,7 +46,13 @@ from ..selectors import (
     visible_loans,
     visible_requests,
 )
-from ..services.barcode import generate_qr_svg, resolve_barcode
+from ..services.allocation import (
+    add_allocation,
+    auto_allocate_request,
+    clear_allocations,
+    remove_allocation,
+)
+from ..services.barcode import generate_qr_svg, generate_qr_svg_payload, resolve_barcode
 from ..services.checkout import checkout_direct, checkout_request
 from ..services.requests import (
     approve_request,
@@ -54,6 +60,7 @@ from ..services.requests import (
     catalog_categories,
     catalog_parts,
     create_request,
+    part_availability,
     part_detail,
     reject_request,
 )
@@ -69,7 +76,9 @@ from .serializers import (
     DecisionSerializer,
     LostSerializer,
     PublicRequestCreateSerializer,
+    PublicRequestLookupSerializer,
     RenewSerializer,
+    RequestAllocateSerializer,
     RequestCreateSerializer,
     ReturnSerializer,
     ScanSerializer,
@@ -87,6 +96,29 @@ def _num(value):
         return float(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _web_url(path: str) -> str:
+    return f"/{get_frontend_base()}{path}"
+
+
+def _allocation_data(line) -> list[dict]:
+    return [
+        {
+            "pk": allocation.pk,
+            "stock_item": allocation.stock_item_id,
+            "stock_item_label": str(allocation.stock_item),
+            "stock_item_serial": allocation.stock_item.serial or "",
+            "stock_item_url": _web_url(f"/stock/item/{allocation.stock_item_id}/"),
+            "location": (
+                allocation.stock_item.location.pathstring
+                if allocation.stock_item.location
+                else ""
+            ),
+            "quantity": _num(allocation.quantity),
+        }
+        for allocation in line.allocations.all()
+    ]
 
 
 def _drf_error(exc: DjangoValidationError):
@@ -117,6 +149,7 @@ def _request_data(request: LoanRequest, user) -> dict:
             if request.requester_id is None
             else ""
         ),
+        "request_url": _web_url(f"/plugin/loan/requests/{request.pk}"),
         "purpose": request.purpose,
         "needed_by": _iso(request.needed_by),
         "return_by": _iso(request.return_by),
@@ -129,6 +162,7 @@ def _request_data(request: LoanRequest, user) -> dict:
         "created": _iso(request.created),
         "item_count": request.item_count,
         "total_quantity": _num(request.total_quantity),
+        "is_fully_allocated": request.is_fully_allocated,
         "can_approve": can_approve(user) and request.status == "pending",
         "can_cancel": request.status in {"pending", "approved", "partially_fulfilled"},
         "can_checkout": can_handout(user)
@@ -142,10 +176,23 @@ def _request_data(request: LoanRequest, user) -> dict:
                 "part": line.part_id,
                 "part_name": line.part.name,
                 "ipn": line.part.IPN or "",
+                "part_url": _web_url(f"/part/{line.part_id}/"),
                 "stock_item": line.stock_item_id,
                 "stock_item_label": str(line.stock_item) if line.stock_item else "",
+                "stock_item_url": (
+                    _web_url(f"/stock/item/{line.stock_item_id}/")
+                    if line.stock_item_id
+                    else ""
+                ),
                 "quantity": _num(line.quantity),
                 "notes": line.notes,
+                "allocations": _allocation_data(line),
+                "allocated_quantity": _num(line.allocated_quantity),
+                "unallocated_quantity": _num(line.unallocated_quantity),
+                "is_fully_allocated": line.is_fully_allocated,
+                "available_stock": _num(
+                    part_availability(line.part, exclude_request=request)["available"]
+                ),
             }
             for line in request.lines.all()
         ],
@@ -437,6 +484,51 @@ class PublicRequestDetailView(APIView):
         return Response(_public_request_data(loan_request))
 
 
+@method_decorator(csrf_protect, name="dispatch")
+class PublicRequestLookupView(APIView):
+    """Find an anonymous request using its reference and email address."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [AnonRateThrottle]
+
+    def post(self, request):
+        serializer = PublicRequestLookupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reference = serializer.validated_data["reference"].strip()
+        email = serializer.validated_data["email"].strip().lower()
+        loan_request = (
+            LoanRequest.objects.select_related("requester")
+            .prefetch_related("lines__part", "lines__stock_item")
+            .filter(reference__iexact=reference)
+            .first()
+        )
+        if loan_request is None or (
+            loan_request.requester_email_display or ""
+        ).strip().lower() != email:
+            raise Http404
+        return Response(_public_request_data(loan_request))
+
+
+class PublicRequestQRCodeView(APIView):
+    """Return a QR code for a request's public tracking page."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request, token):
+        loan_request = get_object_or_404(LoanRequest, public_token=token)
+        url = request.build_absolute_uri(
+            reverse("plugin:loan:public_request_detail", args=[token])
+        )
+        response = HttpResponse(
+            generate_qr_svg_payload(url), content_type="image/svg+xml"
+        )
+        response["Cache-Control"] = "private, max-age=3600"
+        return response
+
+
 class CatalogView(LoanAPIView):
     """Search the requester-safe part catalog."""
 
@@ -543,6 +635,67 @@ class RequestCancelView(LoanAPIView):
             loan_request = cancel_request(
                 loan_request, request.user, serializer.validated_data["notes"]
             )
+        except DjangoValidationError as exc:
+            raise ValidationError(_drf_error(exc)) from None
+        return Response(_request_data(loan_request, request.user))
+
+
+class RequestAllocateView(LoanAPIView):
+    """Auto-allocate a request or add/clear a manual allocation."""
+
+    def post(self, request, pk):
+        loan_request = get_object_or_404(visible_requests(request.user), pk=pk)
+        serializer = RequestAllocateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            if data.get("clear"):
+                clear_allocations(loan_request, request.user)
+            elif data.get("auto"):
+                auto_allocate_request(loan_request, request.user)
+            else:
+                add_allocation(
+                    loan_request,
+                    request.user,
+                    line_id=data["line_id"],
+                    stock_item_id=data["stock_item_id"],
+                    quantity=data.get("quantity", 1),
+                )
+        except DjangoValidationError as exc:
+            raise ValidationError(_drf_error(exc)) from None
+        return Response(_request_data(loan_request, request.user))
+
+
+class RequestAllocationCandidatesView(LoanAPIView):
+    """Return stock items which can be allocated to a request line."""
+
+    def get(self, request, pk):
+        loan_request = get_object_or_404(visible_requests(request.user), pk=pk)
+        line_id = request.GET.get("line_id")
+        line = loan_request.lines.filter(pk=line_id).select_related("part").first()
+        if line is None:
+            raise Http404
+        data = part_detail(line.part_id, exclude_request=loan_request)
+        if data is None:
+            raise Http404
+        return Response({
+            "line_id": line.pk,
+            "part": line.part_id,
+            "part_name": line.part.name,
+            "requested": _num(line.quantity),
+            "allocated": _num(line.allocated_quantity),
+            "outstanding": _num(line.unallocated_quantity),
+            "stock_items": data["stock_items"],
+        })
+
+
+class RequestAllocationDeleteView(LoanAPIView):
+    """Remove one allocation from a request."""
+
+    def delete(self, request, pk, allocation_pk):
+        loan_request = get_object_or_404(visible_requests(request.user), pk=pk)
+        try:
+            remove_allocation(loan_request, request.user, allocation_pk)
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
         return Response(_request_data(loan_request, request.user))

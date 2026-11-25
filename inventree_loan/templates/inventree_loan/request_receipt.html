@@ -1,0 +1,87 @@
+{% load static i18n %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% trans "Loan request receipt" %} {{ request_obj.reference }}</title>
+    <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
+</head>
+<body class="loan-receipt-body">
+<div class="loan-receipt-actions">
+    <button class="loan-btn loan-btn-primary" type="button" onclick="window.print()">{% trans "Print request receipt" %}</button>
+    <a class="loan-btn" href="{% url 'plugin:loan:public_request_detail' request_obj.public_token %}">{% trans "Back to request" %}</a>
+</div>
+
+<main class="loan-receipt">
+    <header class="loan-receipt-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "InvenTree Loan Manager" %}</p>
+            <h1>{% trans "Loan request receipt" %}</h1>
+            <p class="loan-receipt-ref">{{ request_obj.reference }}</p>
+            <p class="loan-muted">{% trans "Keep this reference to track your request." %}</p>
+        </div>
+        <img class="loan-receipt-qr" src="{{ qr_url }}" alt="{% trans 'Request tracking QR code' %}" width="128" height="128">
+    </header>
+
+    <section class="loan-receipt-grid">
+        <div>
+            <h2>{% trans "Requester" %}</h2>
+            <p><strong>{{ request_obj.requester_display }}</strong><br>
+            {{ request_obj.requester_email_display }}{% if request_obj.requester_phone_display %}<br>{{ request_obj.requester_phone_display }}{% endif %}</p>
+            {% if request_obj.requester_organization %}<p>{{ request_obj.requester_organization }}</p>{% endif %}
+        </div>
+        <div>
+            <h2>{% trans "Request dates" %}</h2>
+            <p>{% trans "Created" %}: {{ request_obj.created|date:"M j, Y H:i" }}<br>
+            {% trans "Pickup" %}: {{ request_obj.needed_by|date:"M j, Y"|default:"—" }}<br>
+            {% trans "Return by" %}: {{ request_obj.return_by|date:"M j, Y"|default:"—" }}</p>
+            <p>{% trans "Status" %}: <strong>{{ request_obj.get_status_display }}</strong></p>
+        </div>
+    </section>
+
+    <section>
+        <h2>{% trans "Requested items" %}</h2>
+        <table class="loan-table">
+            <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Quantity" %}</th></tr></thead>
+            <tbody>
+            {% for line in request_obj.lines.all %}
+                <tr>
+                    <td>{{ line.part.name }}{% if line.part.IPN %}<br><span class="loan-muted">{{ line.part.IPN }}</span>{% endif %}</td>
+                    <td>{{ line.stock_item|default:_("Any available") }}</td>
+                    <td>{{ line.quantity|floatformat:"-5" }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="loan-receipt-notes">
+        <h2>{% trans "Purpose" %}</h2>
+        <p>{{ request_obj.purpose|default:"—" }}</p>
+        {% if request_obj.notes %}<p><strong>{% trans "Notes" %}:</strong> {{ request_obj.notes }}</p>{% endif %}
+        <p>{% trans "Present this reference at the loan desk when you collect the items." %}</p>
+    </section>
+
+    <section class="loan-receipt-signatures">
+        <div>
+            <span>{% trans "Requester signature" %}</span>
+            {% if request_obj.signature %}<img class="loan-signature" src="{{ request_obj.signature }}" alt="{% trans 'Requester signature' %}">{% endif %}
+        </div>
+        <div>
+            <span>{% trans "Handout signature" %}</span>
+            {% if loan.signature_checkout %}<img class="loan-signature" src="{{ loan.signature_checkout }}" alt="{% trans 'Handout signature' %}">{% endif %}
+        </div>
+        <div>
+            <span>{% trans "Return signature" %}</span>
+            {% if loan.signature_return %}<img class="loan-signature" src="{{ loan.signature_return }}" alt="{% trans 'Return signature' %}">{% endif %}
+        </div>
+    </section>
+
+    <footer class="loan-receipt-footer">
+        <span>{{ request_obj.reference }}</span>
+        <span>{% trans "Generated" %} {% now "M j, Y H:i" %}</span>
+    </footer>
+</main>
+</body>
+</html>

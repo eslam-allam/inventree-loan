@@ -17,6 +17,7 @@ from ..models import (
     LoanEventType,
     LoanItem,
     LoanRequest,
+    LoanRequestAllocation,
     LoanRequestLine,
     LoanRequestStatus,
     LoanStatus,
@@ -105,7 +106,32 @@ def _allocate_line(
     wanted = line.quantity
     allocations: list[tuple] = []
 
-    if line.stock_item_id:
+    planned = list(
+        LoanRequestAllocation.objects.filter(line=line).select_related("stock_item")
+    )
+    if planned:
+        planned_total = sum(
+            (allocation.quantity for allocation in planned), Decimal(0)
+        )
+        if planned_total != wanted:
+            raise ValidationError(
+                _(
+                    "The allocated quantity for %(part)s does not match the requested quantity"
+                )
+                % {"part": line.part}
+            )
+        for allocation in planned:
+            stock_item = StockItem.objects.select_for_update().get(
+                pk=allocation.stock_item_id
+            )
+            available = stock_item_available_quantity(stock_item)
+            if available < allocation.quantity:
+                raise ValidationError(
+                    _("Stock item %(item)s is no longer available in the allocated quantity")
+                    % {"item": stock_item.pk}
+                )
+            allocations.append((stock_item, allocation.quantity))
+    elif line.stock_item_id:
         stock_item = StockItem.objects.select_for_update().get(pk=line.stock_item_id)
         available = stock_item_available_quantity(stock_item)
         if available < wanted:
@@ -183,7 +209,11 @@ def checkout_request(
 
     request = (
         LoanRequest.objects.select_for_update()
-        .prefetch_related("lines__part", "lines__stock_item")
+        .prefetch_related(
+            "lines__part",
+            "lines__stock_item",
+            "lines__allocations__stock_item",
+        )
         .get(pk=request.pk)
     )
 
@@ -237,8 +267,55 @@ def checkout_request(
         status=LoanStatus.ACTIVE,
     )
 
+    from stock.models import StockItem
+
+    lines = list(request.lines.all())
+    planned: dict[int, Decimal] = {}
+    for line in lines:
+        allocations = list(line.allocations.all())
+        if not allocations:
+            continue
+        allocated = sum(
+            (allocation.quantity for allocation in allocations), Decimal(0)
+        )
+        if allocated != line.quantity:
+            raise ValidationError(
+                _(
+                    "The allocated quantity for %(part)s does not match the requested quantity"
+                )
+                % {"part": line.part}
+            )
+        for allocation in allocations:
+            planned[allocation.stock_item_id] = (
+                planned.get(allocation.stock_item_id, Decimal(0))
+                + allocation.quantity
+            )
+
     issued_items = []
-    for line in request.lines.all():
+    for stock_item_id, quantity in planned.items():
+        stock_item = StockItem.objects.select_for_update().get(pk=stock_item_id)
+        available = stock_item_available_quantity(
+            stock_item, exclude_request=request
+        )
+        if available < quantity:
+            raise ValidationError(
+                _("Stock item %(item)s is no longer available in the allocated quantity")
+                % {"item": stock_item.pk}
+            )
+        issued_items.append(
+            _issue_stock_item(
+                loan=loan,
+                stock_item=stock_item,
+                quantity=quantity,
+                actor=actor,
+                loan_location=loan_location,
+                status_key=status_key,
+            )
+        )
+
+    for line in lines:
+        if line.allocations.exists():
+            continue
         issued_items.extend(
             _allocate_line(
                 loan=loan,
@@ -248,6 +325,8 @@ def checkout_request(
                 status_key=status_key,
             )
         )
+
+    LoanRequestAllocation.objects.filter(line__request=request).delete()
 
     request.status = LoanRequestStatus.FULFILLED
     if request.decided_by_id is None:

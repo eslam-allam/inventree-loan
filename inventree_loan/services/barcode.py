@@ -170,13 +170,13 @@ def resolve_barcode(user, barcode: str) -> dict:
     return {"success": False, "error": str(_("No matching item found"))}
 
 
-def generate_qr_svg(loan: Loan) -> bytes:
-    """Generate an SVG QR code for a loan."""
+def generate_qr_svg_payload(payload: str) -> bytes:
+    """Generate an SVG QR code from an arbitrary payload."""
     import qrcode
     import qrcode.image.svg
 
     image = qrcode.make(
-        qr_payload(loan),
+        payload,
         image_factory=qrcode.image.svg.SvgPathImage,
         box_size=12,
         border=2,
@@ -184,6 +184,11 @@ def generate_qr_svg(loan: Loan) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer)
     return buffer.getvalue()
+
+
+def generate_qr_svg(loan: Loan) -> bytes:
+    """Generate an SVG QR code for a loan."""
+    return generate_qr_svg_payload(qr_payload(loan))
 
 
 def generate_qr_png(loan: Loan) -> bytes:

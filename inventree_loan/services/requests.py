@@ -48,6 +48,23 @@ def _active_loan_stock_ids():
     )
 
 
+def loan_allocated_quantity(stock_item, exclude_request=None) -> Decimal:
+    """Return the quantity of a stock item reserved by live loan requests."""
+    from ..models import LoanRequestAllocation, LoanRequestStatus
+
+    queryset = LoanRequestAllocation.objects.filter(
+        stock_item=stock_item,
+        line__request__status__in=[
+            LoanRequestStatus.PENDING,
+            LoanRequestStatus.APPROVED,
+            LoanRequestStatus.PARTIALLY_FULFILLED,
+        ],
+    )
+    if exclude_request is not None:
+        queryset = queryset.exclude(line__request=exclude_request)
+    return queryset.aggregate(total=Sum("quantity"))["total"] or Decimal(0)
+
+
 def available_stock_queryset(part):
     """Return stock items for a part that may currently be loaned."""
     from stock.models import StockItem
@@ -70,7 +87,7 @@ def available_stock_queryset(part):
     return queryset
 
 
-def stock_item_available_quantity(item) -> Decimal:
+def stock_item_available_quantity(item, exclude_request=None) -> Decimal:
     """Return the quantity of a stock item that can be loaned right now."""
     if item is None or item.quantity <= 0:
         return Decimal(0)
@@ -85,16 +102,17 @@ def stock_item_available_quantity(item) -> Decimal:
         stock_item=item, returned_at__isnull=True, lost=False
     ).exists():
         return Decimal(0)
-    return max(item.unallocated_quantity(), Decimal(0))
+    reserved = loan_allocated_quantity(item, exclude_request=exclude_request)
+    return max(item.unallocated_quantity() - reserved, Decimal(0))
 
 
-def part_availability(part) -> dict:
+def part_availability(part, exclude_request=None) -> dict:
     """Return available and on-loan quantities for a part."""
     from ..models import LoanItem
 
     available = Decimal(0)
     for item in available_stock_queryset(part).select_related("location"):
-        available += max(item.unallocated_quantity(), Decimal(0))
+        available += stock_item_available_quantity(item, exclude_request=exclude_request)
 
     remaining = ExpressionWrapper(
         F("quantity") - F("returned_quantity"),
@@ -214,7 +232,7 @@ def catalog_parts(
     return results
 
 
-def part_detail(part_id: int) -> dict | None:
+def part_detail(part_id: int, exclude_request=None) -> dict | None:
     """Return public part details and the individual units available to loan."""
     from part.models import Part
 
@@ -236,12 +254,14 @@ def part_detail(part_id: int) -> dict | None:
     ):
         return None
 
-    availability = part_availability(part)
+    availability = part_availability(part, exclude_request=exclude_request)
     stock_items = []
     for item in available_stock_queryset(part).select_related("location").order_by(
         "serial", "batch", "pk"
     )[:100]:
-        available = max(item.unallocated_quantity(), Decimal(0))
+        available = stock_item_available_quantity(
+            item, exclude_request=exclude_request
+        )
         if available <= 0:
             continue
         stock_items.append({
@@ -358,6 +378,20 @@ def _validate_lines(lines: list[dict]) -> list[dict]:
             if quantity > available:
                 raise ValidationError(
                     {"quantity": _("Only %(available)s are available") % {"available": available}}
+                )
+        else:
+            availability = part_availability(part)
+            available = availability["available"]
+            if available <= 0:
+                raise ValidationError(
+                    {"lines": _("%(part)s is not available to loan") % {"part": part}}
+                )
+            if quantity > available:
+                raise ValidationError(
+                    {
+                        "quantity": _("Only %(available)s of %(part)s are available")
+                        % {"available": available, "part": part}
+                    }
                 )
 
         cleaned.append({
@@ -533,6 +567,9 @@ def reject_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
     if request.status != LoanRequestStatus.PENDING:
         raise ValidationError(_("Only pending requests can be rejected"))
 
+    from ..models import LoanRequestAllocation
+
+    LoanRequestAllocation.objects.filter(line__request=request).delete()
     request.status = LoanRequestStatus.REJECTED
     request.decided_by = actor
     request.decided_at = timezone.now()
@@ -565,6 +602,9 @@ def cancel_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
     }:
         raise ValidationError(_("This request can no longer be cancelled"))
 
+    from ..models import LoanRequestAllocation
+
+    LoanRequestAllocation.objects.filter(line__request=request).delete()
     request.status = LoanRequestStatus.CANCELLED
     request.decided_by = actor
     request.decided_at = timezone.now()

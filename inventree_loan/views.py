@@ -167,6 +167,25 @@ def public_request_detail(request, token):
     )
 
 
+def public_request_receipt(request, token):
+    """Printable request receipt for anonymous requesters."""
+    loan_request = get_object_or_404(
+        LoanRequest.objects.select_related("requester").prefetch_related(
+            "lines__part", "lines__stock_item"
+        ),
+        public_token=token,
+    )
+    return render(
+        request,
+        "inventree_loan/request_receipt.html",
+        {
+            "request_obj": loan_request,
+            "loan": Loan.objects.filter(request=loan_request).first(),
+            "qr_url": reverse("plugin:loan:public_request_qr", args=[token]),
+        },
+    )
+
+
 @login_required
 def requests_view(request):
     """Requesters see only their own requests; managers use the native console."""
