@@ -10,6 +10,8 @@ from stock.status_codes import StockStatus
 
 TEST_SIGNATURE = "data:image/png;base64,AAAA"
 
+from inventree_loan.services.requests import create_request
+
 from inventree_loan.models import (
     LoanRequest,
     LoanRequestLine,
@@ -100,6 +102,48 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         self.assertEqual(self.request.status, LoanRequestStatus.APPROVED)
         self.assertEqual(self.request.decision_notes, "Approved for demo")
         self.assertEqual(self.request.decided_by, self.approver)
+
+    def test_anonymous_request_tracking_and_receipt(self):
+        created = create_request(
+            None,
+            [{"part_id": self.part.pk, "quantity": 1}],
+            requester_name="Anonymous Requester",
+            requester_email="anon@example.com",
+            purpose="Tracking test",
+            responsibility_ack=True,
+            signature=TEST_SIGNATURE,
+            allow_anonymous=True,
+        )
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.client.get("/plugin/loan/request/").status_code, 200)
+        self.assertEqual(
+            self.client.get(f"/plugin/loan/track/{created.public_token}/").status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/plugin/loan/track/{created.public_token}/receipt/"
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/plugin/loan/track/{created.public_token}/qr.svg"
+            ).status_code,
+            200,
+        )
+        lookup = self.client.post(
+            "/plugin/loan/api/public/requests/lookup/",
+            {"reference": created.reference, "email": "anon@example.com"},
+            format="json",
+        )
+        self.assertEqual(lookup.status_code, 200)
+        wrong = self.client.post(
+            "/plugin/loan/api/public/requests/lookup/",
+            {"reference": created.reference, "email": "wrong@example.com"},
+            format="json",
+        )
+        self.assertEqual(wrong.status_code, 404)
 
     def test_catalog_is_requester_safe(self):
         response = self.client.get("/plugin/loan/api/catalog/?search=API")

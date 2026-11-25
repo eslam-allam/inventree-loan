@@ -24,9 +24,9 @@
         <aside class="it-cat-nav" aria-label="{% trans 'Equipment categories' %}">
             <h2>{% trans "Categories" %}</h2>
             <nav data-public-categories>
-                <button type="button" class="it-tab is-active" data-category-id="" aria-selected="true">{% trans "All items" %}</button>
+                <button type="button" class="it-tab is-active" data-category-id="" aria-pressed="true">{% trans "All items" %}</button>
                 {% for category in categories %}
-                    <button type="button" class="it-tab" data-category-id="{{ category.pk }}" style="--depth: {{ category.depth }}" aria-selected="false">
+                    <button type="button" class="it-tab" data-category-id="{{ category.pk }}" style="--depth: {{ category.depth }}" aria-pressed="false">
                         <span>{{ category.name }}</span><small>{{ category.part_count }}</small>
                     </button>
                 {% endfor %}

@@ -119,15 +119,25 @@ The plugin adds a **Loans** tab to the InvenTree navigation bar, a **Loans** car
 to the dashboard widget list, and a **Loan Manager** spotlight action.
 
 - **Request equipment** (`/plugin/loan/request/`) is the public catalogue.
-  It requires no account. Requesters browse by category, search parts, open
-  item details, choose available stock, enter their contact details, sign, and
-  submit. The success message includes a secret tracking link.
-- **Request status** (`/plugin/loan/track/<token>/`) shows the requester the
-  request, loan dates, decisions, and captured signatures through that link.
+  It requires no account. It uses an InvenTree-style table with category tabs,
+  search, barcode input, pagination, and a request basket. Requesters open item
+  details, choose available stock, enter their contact details, sign, and
+  submit. The confirmation shows the reference code, tracking link, and a
+  printable request receipt.
+- **Track a request** (`/plugin/loan/track/`) lets an anonymous requester enter
+  the reference code and email address to open their request.
+- **Request status** (`/plugin/loan/track/<token>/`) shows the request, loan
+  dates, decisions, and captured signatures.
 - **Loans (navigation)** opens a native InvenTree page at
   `/web/plugin/loan/management`. It is rendered inside the normal InvenTree
   layout, so the header, navigation, theme, and user menu behave exactly like
-  the Stock or Parts pages.
+  the Stock or Parts pages. Signed-in requesters use the same page for their
+  requests and loans; the old server-rendered My Requests pages redirect here,
+  so there is only one version.
+- **Request details** (`/web/plugin/loan/requests/<pk>`) is a full native page,
+  like a build-order detail page. It shows requester/contact details, purpose,
+  dates, lines, signatures, stock allocations, part/stock links, approval and
+  handout actions, and print buttons for request/handout/return receipts.
 - **Loans (dashboard widget)** provides a requester shortcut and an
   **Open loan desk** button which opens the same native page.
 - The plugin settings page (Admin Center → Plugins → InvenTree Loan Manager)
@@ -135,10 +145,8 @@ to the dashboard widget list, and a **Loan Manager** spotlight action.
 
 The native console adapts to the signed-in user's loan role: requesters see
 their own requests and loans, while loan staff additionally see the handout,
-staff, setup, and audit-history tabs. The **Requests** tab has a **View**
-button for each request, including anonymous requests, so staff can review the
-requester, purpose, dates, items and signature before approving or handing out.
-Handout and return dialogs require the borrower's signature.
+staff, setup, and audit-history tabs. Handout and return dialogs require the
+borrower's signature.
 
 ## Initial setup
 
@@ -203,21 +211,41 @@ also need the normal InvenTree stock change role.
 5. Send the request. The confirmation includes a secret tracking link.
 6. Approvers receive an in-app notification (and email if enabled).
 
+### Allocate stock
+
+Before approval or handout, staff can plan which physical stock items will be
+used:
+
+1. Open the request detail page and select **Auto allocate**.
+2. Review the allocated stock sub-rows. Each row links to the stock item and
+   shows its location and quantity.
+3. Use **Allocate** on a line to add a specific stock item manually, or
+   **Remove** to release an allocation.
+4. Use **Clear allocations** to start again.
+
+Allocations are plans, not stock movements. They reduce the reported public
+availability, and checkout revalidates them before moving stock. Non-trackable
+parts can be allocated partially across stock items; serialized assets are
+allocated one unit per stock item. The part name links to the native InvenTree
+part page, and each allocation links to its stock item page.
+
 ### Approve or reject
 
-Approvers open the Loan Manager console and use the **Requests** tab. Select
-**View** to see the requester, contact details, purpose, dates, items and
-submitted signature. **Approve** or **Reject**, optionally adding a decision
+Approvers open the Loan Manager console or the request detail page. The detail
+view shows the requester, contact details, purpose, dates, items, signature and
+stock allocations. **Approve** or **Reject**, optionally adding a decision
 note. Anonymous requesters receive the decision at the email address they
 provided, and can follow the request through their tracking link.
 
 ### Hand out
 
-1. Open the **Handout** tab in the Loan Manager console.
-2. Select **View** or **Hand out** on an approved request.
+1. Open the **Handout** tab in the Loan Manager console, or open the request
+   detail page.
+2. Select **Hand out** on an approved request.
 3. Review the request details and have the borrower sign in the signature box.
 4. Confirm the handout.
-5. Print the receipt or show the loan QR.
+5. Print the **handout receipt** or show the loan QR. The receipt QR code opens
+   the request tracking/detail page.
 
 The service selects available stock items, moves or splits the requested quantities
 to the On Loan location, applies the On Loan status, and records the original
@@ -230,6 +258,7 @@ requester's tracking page and the printed receipt.
 2. Choose the loan and select **Return**.
 3. Adjust return quantities and select the condition.
 4. Ask the borrower to sign, then confirm.
+5. Print the **return receipt** from the loan row or request detail page.
 
 The item is returned to its original location, the original status is restored, and
 the loan is marked partially returned or returned. The return signature is stored
@@ -261,9 +290,10 @@ Loan QR codes contain a JSON payload:
 {"inventree_loan": "<loan-uuid>"}
 ```
 
-Scanning a loan QR at the loan desk opens the return workflow. Scanning a stock item
-barcode delegates to InvenTree's registered barcode plugins, so existing labels
-continue to work.
+Loan QR codes can still open the return workflow at the desk. Printed request,
+handout, and return receipts use a separate QR code that links to the request
+tracking/detail page. Scanning a stock item barcode delegates to InvenTree's
+registered barcode plugins, so existing labels continue to work.
 
 The scanner accepts:
 
@@ -334,7 +364,8 @@ python manage.py test inventree_loan
 
 The tests expect the plugin app to be enabled, as InvenTree's test runner enables
 installed plugins. Tests cover role hierarchy, request visibility, approval
-permissions, stock movement, partial returns, and status restoration.
+permissions, automatic/manual allocation, public availability limits,
+serialized stock rules, checkout, partial returns, and status restoration.
 
 ## Packaging
 

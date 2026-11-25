@@ -170,6 +170,7 @@ def _request_data(request: LoanRequest, user) -> dict:
         "loan_status_display": loan.get_status_display() if loan else "",
         "loan_returned_at": _iso(loan.returned_at) if loan else None,
         "can_approve": can_approve(user) and request.status == "pending",
+        "can_handout": can_handout(user),
         "can_cancel": request.status in {"pending", "approved", "partially_fulfilled"},
         "can_checkout": can_handout(user)
         and (

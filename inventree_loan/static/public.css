@@ -1456,3 +1456,7 @@ body.loan-external a:hover {
 #request-details {
     scroll-margin-top: 72px;
 }
+
+.it-dim {
+    color: var(--it-dim);
+}

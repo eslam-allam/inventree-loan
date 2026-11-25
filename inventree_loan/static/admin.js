@@ -529,7 +529,7 @@ function RequestDetailPage({ context, requestId }) {
     const returnReceipt = detail?.loan_pk && detail?.loan_status === 'returned'
         ? `/plugin/loan/loans/${detail.loan_pk}/receipt/?type=return`
         : null;
-    const canAllocate = Boolean(detail?.can_approve || detail?.can_checkout);
+    const canAllocate = Boolean(detail?.can_approve || detail?.can_handout || detail?.can_checkout);
     const fulfilled = Boolean(detail?.loan_pk) || detail?.status === 'fulfilled';
 
     if (error) {
@@ -659,7 +659,7 @@ function RequestDetailPage({ context, requestId }) {
                                         M.Group,
                                         { gap: 4, wrap: 'nowrap' },
                                         h(M.Anchor, { href: line.part_url || '#', target: '_blank', size: 'xs' }, 'View part'),
-                                        canAllocate && !fulfilled
+                                        canAllocate && !fulfilled && !line.is_fully_allocated
                                             ? h(M.Button, { size: 'compact-xs', variant: 'light', onClick: () => openManualAllocation(line) }, 'Allocate')
                                             : null
                                     )
