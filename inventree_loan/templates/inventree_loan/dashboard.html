@@ -1,0 +1,192 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Dashboard" %}{% endblock %}
+{% block content %}
+<div class="loan-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "Loan desk" %}</p>
+            <h1>{% trans "Dashboard" %}</h1>
+            <p class="loan-subtitle">
+                {% if is_manager %}
+                    {% trans "Approve requests, hand out items and keep returns moving." %}
+                {% else %}
+                    {% trans "Request items, track your due dates and see your loan history." %}
+                {% endif %}
+            </p>
+        </div>
+        <div class="loan-page-actions">
+            {% if can_request %}
+                <a class="loan-btn loan-btn-primary" href="{% url 'plugin:loan:request_new' %}"><i class="fas fa-plus" aria-hidden="true"></i> {% trans "New request" %}</a>
+            {% endif %}
+            {% if is_desk %}
+                <a class="loan-btn" href="{% url 'plugin:loan:checkout' %}"><i class="fas fa-barcode" aria-hidden="true"></i> {% trans "Hand out" %}</a>
+                <a class="loan-btn" href="{% url 'plugin:loan:return' %}"><i class="fas fa-rotate-left" aria-hidden="true"></i> {% trans "Return" %}</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <section class="loan-kpis" aria-label="{% trans 'Loan statistics' %}">
+        <a class="loan-kpi" href="{% url 'plugin:loan:requests' %}?status=pending">
+            <span class="loan-kpi-label">{% trans "Pending requests" %}</span>
+            <strong>{{ stats.pending }}</strong>
+            <span class="loan-kpi-meta">{% trans "Waiting for a decision" %}</span>
+        </a>
+        <a class="loan-kpi" href="{% url 'plugin:loan:loans' %}?status=active">
+            <span class="loan-kpi-label">{% trans "Active loans" %}</span>
+            <strong>{{ stats.active }}</strong>
+            <span class="loan-kpi-meta">{% trans "Items currently out" %}</span>
+        </a>
+        <a class="loan-kpi {% if stats.overdue %}loan-kpi-danger{% endif %}" href="{% url 'plugin:loan:loans' %}?status=overdue">
+            <span class="loan-kpi-label">{% trans "Overdue" %}</span>
+            <strong>{{ stats.overdue }}</strong>
+            <span class="loan-kpi-meta">{% trans "Past the due date" %}</span>
+        </a>
+        <a class="loan-kpi {% if stats.due_soon %}loan-kpi-warning{% endif %}" href="{% url 'plugin:loan:loans' %}?status=active">
+            <span class="loan-kpi-label">{% trans "Due soon" %}</span>
+            <strong>{{ stats.due_soon }}</strong>
+            <span class="loan-kpi-meta">{% trans "Within" %} {{ due_soon_days }} {% trans "days" %}</span>
+        </a>
+    </section>
+
+    {% if is_desk %}
+        <section class="loan-panel loan-scan-panel">
+            <div>
+                <h2>{% trans "Scan something" %}</h2>
+                <p class="loan-muted">{% trans "Scan a stock item barcode to hand it out, or scan a loan QR to return it." %}</p>
+            </div>
+            <form class="loan-scan-form" data-scan-form data-scan-target="checkout">
+                <label class="loan-sr-only" for="dashboard-scan">{% trans "Barcode or loan QR" %}</label>
+                <div class="loan-scan-row">
+                    <i class="fas fa-barcode loan-scan-icon" aria-hidden="true"></i>
+                    <input id="dashboard-scan" name="barcode" type="text" inputmode="text" autocomplete="off" placeholder="{% trans 'Scan or type a barcode…' %}" data-scan-input>
+                    <button class="loan-btn loan-btn-primary" type="submit">{% trans "Scan" %}</button>
+                </div>
+                <p class="loan-scan-help">{% trans "USB scanners work automatically. Camera scanning is available on supported browsers." %}</p>
+                <div class="loan-scan-result" role="status" aria-live="polite" data-scan-result></div>
+            </form>
+        </section>
+    {% endif %}
+
+    <div class="loan-grid loan-grid-2">
+        {% if is_manager %}
+            <section class="loan-panel">
+                <div class="loan-panel-header">
+                    <div>
+                        <h2>{% trans "Pending approvals" %}</h2>
+                        <p class="loan-muted">{% trans "Oldest requests first." %}</p>
+                    </div>
+                    <a class="loan-link" href="{% url 'plugin:loan:requests' %}?status=pending">{% trans "View all" %}</a>
+                </div>
+                {% if pending_requests %}
+                    <div class="loan-table-wrap">
+                        <table class="loan-table">
+                            <thead><tr><th scope="col">{% trans "Request" %}</th><th scope="col">{% trans "Requester" %}</th><th scope="col">{% trans "Items" %}</th><th scope="col">{% trans "Status" %}</th></tr></thead>
+                            <tbody>
+                            {% for req in pending_requests %}
+                                <tr>
+                                    <td><a class="loan-ref" href="{% url 'plugin:loan:request_detail' req.pk %}">{{ req.reference }}</a><div class="loan-muted">{{ req.created|date:"M j, Y" }}</div></td>
+                                    <td>{{ req.requester.get_full_name|default:req.requester.username }}</td>
+                                    <td>{{ req.item_count }}</td>
+                                    <td>{% include "inventree_loan/_status_badge.html" with status=req.status label=req.get_status_display %}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <a class="loan-btn loan-btn-block" href="{% url 'plugin:loan:requests' %}?status=pending">{% trans "Open approval queue" %}</a>
+                {% else %}
+                    <div class="loan-empty">
+                        <i class="fas fa-inbox" aria-hidden="true"></i>
+                        <strong>{% trans "No pending requests" %}</strong>
+                        <span>{% trans "New requests will appear here." %}</span>
+                    </div>
+                {% endif %}
+            </section>
+        {% else %}
+            <section class="loan-panel">
+                <div class="loan-panel-header">
+                    <div><h2>{% trans "My recent requests" %}</h2><p class="loan-muted">{% trans "Track approvals and pickups." %}</p></div>
+                    <a class="loan-link" href="{% url 'plugin:loan:requests' %}">{% trans "View all" %}</a>
+                </div>
+                {% if my_requests %}
+                    <div class="loan-table-wrap">
+                        <table class="loan-table">
+                            <thead><tr><th scope="col">{% trans "Request" %}</th><th scope="col">{% trans "Items" %}</th><th scope="col">{% trans "Return by" %}</th><th scope="col">{% trans "Status" %}</th></tr></thead>
+                            <tbody>
+                            {% for req in my_requests %}
+                                <tr>
+                                    <td><a class="loan-ref" href="{% url 'plugin:loan:request_detail' req.pk %}">{{ req.reference }}</a></td>
+                                    <td>{{ req.item_count }}</td>
+                                    <td>{{ req.return_by|date:"M j, Y"|default:"—" }}</td>
+                                    <td>{% include "inventree_loan/_status_badge.html" with status=req.status label=req.get_status_display %}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="loan-empty">
+                        <i class="fas fa-clipboard-list" aria-hidden="true"></i>
+                        <strong>{% trans "No requests yet" %}</strong>
+                        <span>{% trans "Start by requesting an item you need." %}</span>
+                        {% if can_request %}<a class="loan-btn loan-btn-primary" href="{% url 'plugin:loan:request_new' %}">{% trans "New request" %}</a>{% endif %}
+                    </div>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        <section class="loan-panel">
+            <div class="loan-panel-header">
+                <div><h2>{% trans "Due and overdue" %}</h2><p class="loan-muted">{% trans "Keep an eye on upcoming returns." %}</p></div>
+                <a class="loan-link" href="{% url 'plugin:loan:loans' %}">{% trans "View loans" %}</a>
+            </div>
+            {% if due_loans %}
+                <ul class="loan-list">
+                {% for loan in due_loans %}
+                    <li class="loan-list-item">
+                        <div>
+                            <a class="loan-ref" href="{% url 'plugin:loan:loan_detail' loan.pk %}">{{ loan.reference }}</a>
+                            <div class="loan-muted">{{ loan.borrower.get_full_name|default:loan.borrower.username }} · {{ loan.item_count }} {% trans "item(s)" %}</div>
+                        </div>
+                        <div class="loan-list-meta">
+                            {% include "inventree_loan/_status_badge.html" with status=loan.status label=loan.get_status_display %}
+                            <span class="{% if loan.is_overdue %}loan-text-danger{% endif %}">{{ loan.due_at|date:"M j" }}</span>
+                        </div>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <div class="loan-empty">
+                    <i class="fas fa-mug-hot" aria-hidden="true"></i>
+                    <strong>{% trans "Nothing due right now" %}</strong>
+                    <span>{% trans "You are all caught up." %}</span>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+
+    <section class="loan-panel">
+        <div class="loan-panel-header">
+            <div><h2>{% trans "Recent activity" %}</h2><p class="loan-muted">{% trans "The latest loan events." %}</p></div>
+            {% if is_manager %}<a class="loan-link" href="{% url 'plugin:loan:history' %}">{% trans "Open history" %}</a>{% endif %}
+        </div>
+        {% if recent_events %}
+            <ul class="loan-timeline loan-timeline-compact">
+            {% for event in recent_events %}
+                <li>
+                    <span class="loan-timeline-dot" aria-hidden="true"></span>
+                    <div>
+                        <strong>{{ event.get_event_type_display }}</strong>
+                        {% if event.notes %}<span class="loan-muted"> — {{ event.notes }}</span>{% endif %}
+                        <div class="loan-muted">{{ event.actor_name|default:"System" }} · {{ event.created|date:"M j, Y H:i" }}</div>
+                    </div>
+                </li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <div class="loan-empty"><i class="fas fa-clock-rotate-left" aria-hidden="true"></i><strong>{% trans "No activity yet" %}</strong></div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

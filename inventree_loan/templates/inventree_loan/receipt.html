@@ -1,0 +1,74 @@
+{% load static i18n %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% trans "Loan receipt" %} {{ loan.reference }}</title>
+    <link rel="stylesheet" href="{% static 'css/inventree.css' %}">
+    <link rel="stylesheet" href="{% static 'plugins/loan/loan.css' %}">
+</head>
+<body class="loan-receipt-body">
+<div class="loan-receipt-actions">
+    <button class="loan-btn loan-btn-primary" type="button" onclick="window.print()">{% trans "Print receipt" %}</button>
+    <a class="loan-btn" href="{% url 'plugin:loan:loan_detail' loan.pk %}">{% trans "Back to loan" %}</a>
+</div>
+
+<main class="loan-receipt">
+    <header class="loan-receipt-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "InvenTree Loan Manager" %}</p>
+            <h1>{% trans "Loan receipt" %}</h1>
+            <p class="loan-receipt-ref">{{ loan.reference }}</p>
+        </div>
+        <img class="loan-receipt-qr" src="{{ qr_url }}" alt="{% trans 'Loan QR code' %}" width="128" height="128">
+    </header>
+
+    <section class="loan-receipt-grid">
+        <div>
+            <h2>{% trans "Borrower" %}</h2>
+            <p><strong>{{ loan.borrower.get_full_name|default:loan.borrower.username }}</strong><br>
+            {{ loan.borrower.username }}{% if loan.borrower.email %}<br>{{ loan.borrower.email }}{% endif %}</p>
+        </div>
+        <div>
+            <h2>{% trans "Loan dates" %}</h2>
+            <p>{% trans "Issued" %}: {{ loan.issued_at|date:"M j, Y H:i" }}<br>
+            {% trans "Due" %}: <strong>{{ loan.due_at|date:"M j, Y H:i" }}</strong><br>
+            {% trans "Issued by" %}: {{ loan.issued_by.get_full_name|default:loan.issued_by.username }}</p>
+        </div>
+    </section>
+
+    <section>
+        <h2>{% trans "Items" %}</h2>
+        <table class="loan-table">
+            <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset / serial" %}</th><th scope="col">{% trans "Quantity" %}</th></tr></thead>
+            <tbody>
+            {% for item in loan.items.all %}
+                <tr>
+                    <td>{{ item.part.name }}{% if item.part.IPN %}<br><span class="loan-muted">{{ item.part.IPN }}</span>{% endif %}</td>
+                    <td>{{ item.stock_item_display }}{% if item.stock_item.serial %}<br><span class="loan-muted">{{ item.stock_item.serial }}</span>{% endif %}</td>
+                    <td>{{ item.quantity }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="loan-receipt-notes">
+        <h2>{% trans "Return instructions" %}</h2>
+        <p>{% trans "Please return all items to the loan desk by the due date. Bring this receipt or the QR code if possible." %}</p>
+        {% if loan.notes %}<p><strong>{% trans "Notes" %}:</strong> {{ loan.notes }}</p>{% endif %}
+    </section>
+
+    <section class="loan-receipt-signatures">
+        <div><span>{% trans "Borrower signature" %}</span></div>
+        <div><span>{% trans "Loan desk signature" %}</span></div>
+    </section>
+
+    <footer class="loan-receipt-footer">
+        <span>{{ loan.reference }}</span>
+        <span>{% trans "Generated" %} {% now "M j, Y H:i" %}</span>
+    </footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,93 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{{ request_obj.reference }}{% endblock %}
+{% block content %}
+<div class="loan-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow"><a href="{% url 'plugin:loan:requests' %}">{% trans "Requests" %}</a></p>
+            <h1>{{ request_obj.reference }}</h1>
+            <p class="loan-subtitle">
+                {% trans "Requested by" %} <strong>{{ request_obj.requester.get_full_name|default:request_obj.requester.username }}</strong>
+                · {{ request_obj.created|date:"M j, Y H:i" }}
+            </p>
+        </div>
+        <div class="loan-page-actions">
+            {% include "inventree_loan/_status_badge.html" with status=request_obj.status label=request_obj.get_status_display %}
+            {% if is_manager and request_obj.status == 'pending' %}
+                <button class="loan-btn loan-btn-success" type="button" data-request-action="approve" data-request-id="{{ request_obj.pk }}"><i class="fas fa-check" aria-hidden="true"></i> {% trans "Approve" %}</button>
+                <button class="loan-btn loan-btn-danger" type="button" data-request-action="reject" data-request-id="{{ request_obj.pk }}"><i class="fas fa-xmark" aria-hidden="true"></i> {% trans "Reject" %}</button>
+            {% endif %}
+            {% if is_manager and request_obj.status == 'approved' %}
+                <a class="loan-btn loan-btn-primary" href="{% url 'plugin:loan:checkout' %}?request_id={{ request_obj.pk }}"><i class="fas fa-hand-holding" aria-hidden="true"></i> {% trans "Hand out" %}</a>
+            {% endif %}
+            {% if request_obj.loan %}
+                <a class="loan-btn" href="{% url 'plugin:loan:loan_detail' request_obj.loan.pk %}">{% trans "View loan" %}</a>
+            {% endif %}
+            {% if request_obj.status == 'pending' or request_obj.status == 'approved' %}
+                <button class="loan-btn" type="button" data-request-action="cancel" data-request-id="{{ request_obj.pk }}">{% trans "Cancel" %}</button>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="loan-grid loan-grid-2">
+        <section class="loan-panel">
+            <div class="loan-panel-header"><div><h2>{% trans "Requested items" %}</h2><p class="loan-muted">{{ request_obj.item_count }} {% trans "line(s)" %}</p></div></div>
+            <div class="loan-table-wrap">
+                <table class="loan-table">
+                    <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Qty" %}</th><th scope="col">{% trans "Notes" %}</th></tr></thead>
+                    <tbody>
+                    {% for line in request_obj.lines.all %}
+                        <tr>
+                            <td><strong>{{ line.part.name }}</strong>{% if line.part.IPN %}<div class="loan-muted">{{ line.part.IPN }}</div>{% endif %}</td>
+                            <td>{% if line.stock_item %}{{ line.stock_item }}{% else %}<span class="loan-muted">{% trans "Any available" %}</span>{% endif %}</td>
+                            <td>{{ line.quantity }}</td>
+                            <td class="loan-muted">{{ line.notes|default:"—" }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="loan-panel">
+            <div class="loan-panel-header"><div><h2>{% trans "Request information" %}</h2></div></div>
+            <dl class="loan-details">
+                <dt>{% trans "Requester" %}</dt><dd>{{ request_obj.requester.get_full_name|default:request_obj.requester.username }}</dd>
+                <dt>{% trans "Pickup date" %}</dt><dd>{{ request_obj.needed_by|date:"M j, Y"|default:"—" }}</dd>
+                <dt>{% trans "Requested return" %}</dt><dd>{{ request_obj.return_by|date:"M j, Y"|default:"—" }}</dd>
+                <dt>{% trans "Project / course" %}</dt><dd>{{ request_obj.project|default:"—" }}</dd>
+                <dt>{% trans "Contact" %}</dt><dd>{{ request_obj.contact|default:"—" }}</dd>
+                <dt>{% trans "Purpose" %}</dt><dd>{{ request_obj.purpose|default:"—"|linebreaksbr }}</dd>
+                <dt>{% trans "Notes" %}</dt><dd>{{ request_obj.notes|default:"—"|linebreaksbr }}</dd>
+                {% if request_obj.decided_by %}
+                    <dt>{% trans "Decision" %}</dt><dd>{{ request_obj.get_status_display }} by {{ request_obj.decided_by }} on {{ request_obj.decided_at|date:"M j, Y H:i" }}</dd>
+                {% endif %}
+                {% if request_obj.decision_notes %}
+                    <dt>{% trans "Decision notes" %}</dt><dd>{{ request_obj.decision_notes|linebreaksbr }}</dd>
+                {% endif %}
+            </dl>
+        </section>
+    </div>
+
+    <section class="loan-panel">
+        <div class="loan-panel-header"><div><h2>{% trans "Timeline" %}</h2><p class="loan-muted">{% trans "Every decision and change is recorded." %}</p></div></div>
+        {% if events %}
+            <ul class="loan-timeline">
+            {% for event in events %}
+                <li>
+                    <span class="loan-timeline-dot" aria-hidden="true"></span>
+                    <div>
+                        <strong>{{ event.get_event_type_display }}</strong>
+                        {% if event.notes %}<span class="loan-muted"> — {{ event.notes }}</span>{% endif %}
+                        <div class="loan-muted">{{ event.actor_name|default:"System" }} · {{ event.created|date:"M j, Y H:i" }}</div>
+                    </div>
+                </li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p class="loan-muted">{% trans "No events yet." %}</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

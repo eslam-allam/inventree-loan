@@ -1,0 +1,125 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Hand out" %}{% endblock %}
+{% block content %}
+<div class="loan-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "Loan desk" %}</p>
+            <h1>{% trans "Hand out items" %}</h1>
+            <p class="loan-subtitle">{% trans "Scan items, confirm the borrower, and issue the loan." %}</p>
+        </div>
+        <a class="loan-btn" href="{% url 'plugin:loan:loans' %}">{% trans "Active loans" %}</a>
+    </header>
+
+    {% if not setup_configured %}
+        <div class="loan-alert loan-alert-warning" role="alert">
+            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            <div>{% trans "The On Loan location or custom status is missing. Complete setup before handing out items." %} <a href="{% url 'plugin:loan:setup' %}">{% trans "Open setup" %}</a></div>
+        </div>
+    {% endif %}
+
+    <div class="loan-checkout-layout" data-checkout data-request-id="{{ selected_request.pk|default:'' }}" data-borrower-id="{{ selected_request.requester.pk|default:'' }}" data-default-due="{{ default_due|date:'Y-m-d' }}">
+        <div class="loan-stack">
+            {% if selected_request %}
+                <section class="loan-panel">
+                    <div class="loan-panel-header">
+                        <div>
+                            <h2>{% trans "Approved request" %}</h2>
+                            <p class="loan-muted">{{ selected_request.reference }} · {{ selected_request.requester.get_full_name|default:selected_request.requester.username }}</p>
+                        </div>
+                        <a class="loan-link" href="{% url 'plugin:loan:request_detail' selected_request.pk %}">{% trans "View request" %}</a>
+                    </div>
+                    <div class="loan-table-wrap">
+                        <table class="loan-table">
+                            <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Qty" %}</th></tr></thead>
+                            <tbody>
+                            {% for line in selected_request.lines.all %}
+                                <tr>
+                                    <td><strong>{{ line.part.name }}</strong>{% if line.part.IPN %}<div class="loan-muted">{{ line.part.IPN }}</div>{% endif %}</td>
+                                    <td>{% if line.stock_item %}{{ line.stock_item }}{% else %}<span class="loan-muted">{% trans "Auto-select available stock" %}</span>{% endif %}</td>
+                                    <td>{{ line.quantity }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="loan-muted loan-small">{% trans "The server selects available stock items for each line and locks them to this loan." %}</p>
+                </section>
+            {% else %}
+                <section class="loan-panel">
+                    <div class="loan-panel-header"><div><h2>{% trans "Borrower" %}</h2><p class="loan-muted">{% trans "Search by username, name or email." %}</p></div></div>
+                    <div class="loan-search-box">
+                        <i class="fas fa-user" aria-hidden="true"></i>
+                        <input type="search" id="borrower-search" autocomplete="off" placeholder="{% trans 'Search users…' %}" data-borrower-search>
+                    </div>
+                    <div class="loan-catalog-results" data-borrower-results aria-live="polite"></div>
+                    <div class="loan-selected-card" data-borrower-selected hidden>
+                        <div><strong data-borrower-name></strong><div class="loan-muted" data-borrower-email></div></div>
+                        <button class="loan-btn loan-btn-sm" type="button" data-borrower-clear>{% trans "Change" %}</button>
+                    </div>
+                </section>
+            {% endif %}
+
+            <section class="loan-panel">
+                <div class="loan-panel-header"><div><h2>{% trans "Add items" %}</h2><p class="loan-muted">{% trans "Scan a barcode or search the catalog." %}</p></div></div>
+                <form class="loan-scan-form" data-checkout-scan-form>
+                    <label class="loan-label" for="checkout-scan">{% trans "Scan item" %}</label>
+                    <div class="loan-scan-row">
+                        <i class="fas fa-barcode loan-scan-icon" aria-hidden="true"></i>
+                        <input id="checkout-scan" type="text" autocomplete="off" placeholder="{% trans 'Scan or type a stock barcode…' %}" data-checkout-scan>
+                        <button class="loan-btn" type="submit">{% trans "Add" %}</button>
+                    </div>
+                    <div class="loan-scan-result" role="status" aria-live="polite" data-checkout-scan-result></div>
+                </form>
+                {% if not selected_request %}
+                    <div class="loan-search-wrap">
+                        <label class="loan-label" for="checkout-catalog">{% trans "Search parts" %}</label>
+                        <div class="loan-search-box">
+                            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                            <input type="search" id="checkout-catalog" autocomplete="off" placeholder="{% trans 'Part name or IPN…' %}" data-checkout-catalog>
+                        </div>
+                        <div class="loan-catalog-results" data-checkout-results aria-live="polite"></div>
+                    </div>
+                {% endif %}
+            </section>
+        </div>
+
+        <aside class="loan-stack">
+            <section class="loan-panel loan-panel-sticky">
+                <div class="loan-panel-header"><div><h2>{% trans "Loan cart" %}</h2><p class="loan-muted"><span data-checkout-count>0</span> {% trans "items" %}</p></div></div>
+                <div class="loan-cart-empty" data-checkout-empty>
+                    <i class="fas fa-barcode" aria-hidden="true"></i>
+                    <strong>{% trans "Scan an item" %}</strong>
+                    <span>{% trans "Items added to the loan appear here." %}</span>
+                </div>
+                <div class="loan-table-wrap" data-checkout-cart hidden>
+                    <table class="loan-table">
+                        <thead><tr><th scope="col">{% trans "Item" %}</th><th scope="col">{% trans "Qty" %}</th><th scope="col"><span class="loan-sr-only">{% trans "Remove" %}</span></th></tr></thead>
+                        <tbody data-checkout-body></tbody>
+                    </table>
+                </div>
+                <div class="loan-field">
+                    <label class="loan-label" for="checkout-due">{% trans "Due date" %}</label>
+                    <input class="loan-input" type="date" id="checkout-due" value="{{ default_due|date:'Y-m-d' }}" data-checkout-due>
+                </div>
+                <div class="loan-field">
+                    <label class="loan-label" for="checkout-notes">{% trans "Handout notes" %}</label>
+                    <textarea class="loan-textarea" id="checkout-notes" rows="2" data-checkout-notes></textarea>
+                </div>
+                <button class="loan-btn loan-btn-primary loan-btn-block" type="button" data-checkout-submit>{% trans "Confirm and hand out" %}</button>
+                <div class="loan-form-error" role="alert" data-checkout-error hidden></div>
+                <div class="loan-success" role="status" data-checkout-success hidden></div>
+            </section>
+            <section class="loan-panel loan-panel-muted">
+                <h3>{% trans "Good to know" %}</h3>
+                <ul class="loan-bullets">
+                    <li>{% trans "Items move to the On Loan location and become unavailable in InvenTree." %}</li>
+                    <li>{% trans "The original location and status are restored on return." %}</li>
+                    <li>{% trans "Every action is recorded in the loan timeline." %}</li>
+                </ul>
+            </section>
+        </aside>
+    </div>
+</div>
+{% endblock %}

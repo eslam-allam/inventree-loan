@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventree-loan"
+description = "Loan and return management for InvenTree, with requests, approvals, barcode/QR support and full history."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "InvenTree Loan Contributors" }]
+keywords = ["inventree", "plugin", "loan", "library", "barcode", "qr"]
+dependencies = ["qrcode>=7.4"]
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Framework :: InvenTree",
+    "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-django>=4.8",
+    "ruff>=0.6",
+]
+
+[project.entry-points."inventree_plugins"]
+InvenTreeLoan = "inventree_loan.core:InvenTreeLoanPlugin"
+
+[project.urls]
+Homepage = "https://github.com/inventree/inventree-loan"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["inventree_loan*"]
+
+[tool.setuptools.package-data]
+inventree_loan = [
+    "templates/**/*.html",
+    "static/**/*",
+    "migrations/*.py",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "inventree_loan.PLUGIN_VERSION" }
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = [".git", "__pycache__", "build", "dist", "*.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "DJ"]
+ignore = ["E501", "DJ001"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "InvenTree.settings"
+python_files = ["test_*.py"]

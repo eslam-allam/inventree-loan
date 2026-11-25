@@ -1,0 +1,73 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Return" %}{% endblock %}
+{% block content %}
+<div class="loan-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "Loan desk" %}</p>
+            <h1>{% trans "Return items" %}</h1>
+            <p class="loan-subtitle">{% trans "Scan the loan QR or a stock item barcode, then confirm the return." %}</p>
+        </div>
+        <a class="loan-btn" href="{% url 'plugin:loan:loans' %}?status=active">{% trans "Active loans" %}</a>
+    </header>
+
+    <div data-return data-initial-loan="{{ selected_loan.pk|default:'' }}">
+        <section class="loan-panel loan-scan-panel">
+            <div>
+                <h2>{% trans "Scan a loan" %}</h2>
+                <p class="loan-muted">{% trans "Scan the QR code printed on the receipt, or an item barcode." %}</p>
+            </div>
+            <form class="loan-scan-form" data-return-scan-form>
+                <label class="loan-sr-only" for="return-scan">{% trans "Loan QR or item barcode" %}</label>
+                <div class="loan-scan-row">
+                    <i class="fas fa-qrcode loan-scan-icon" aria-hidden="true"></i>
+                    <input id="return-scan" type="text" autocomplete="off" placeholder="{% trans 'Scan or type a loan QR / barcode…' %}" data-return-scan>
+                    <button class="loan-btn loan-btn-primary" type="submit">{% trans "Find loan" %}</button>
+                </div>
+                <div class="loan-scan-result" role="status" aria-live="polite" data-return-scan-result></div>
+            </form>
+        </section>
+
+        <div data-return-panel hidden>
+            <div class="loan-grid loan-grid-2">
+                <section class="loan-panel">
+                    <div class="loan-panel-header">
+                        <div><h2 data-return-reference>{% trans "Loan" %}</h2><p class="loan-muted" data-return-meta></p></div>
+                        <span data-return-status></span>
+                    </div>
+                    <dl class="loan-details">
+                        <dt>{% trans "Borrower" %}</dt><dd data-return-borrower></dd>
+                        <dt>{% trans "Due" %}</dt><dd data-return-due></dd>
+                        <dt>{% trans "Returning" %}</dt><dd data-return-count></dd>
+                    </dl>
+                    <label class="loan-check">
+                        <input type="checkbox" data-return-all checked>
+                        <span>{% trans "Return all remaining items" %}</span>
+                    </label>
+                </section>
+                <section class="loan-panel">
+                    <div class="loan-panel-header"><div><h2>{% trans "Return checklist" %}</h2><p class="loan-muted">{% trans "Adjust quantities and record the condition." %}</p></div></div>
+                    <div class="loan-field">
+                        <label class="loan-label" for="return-notes">{% trans "Return notes" %}</label>
+                        <textarea class="loan-textarea" id="return-notes" rows="2" placeholder="{% trans 'Optional notes for the whole return…' %}"></textarea>
+                    </div>
+                    <button class="loan-btn loan-btn-primary loan-btn-block" type="button" data-return-submit>{% trans "Confirm return" %}</button>
+                    <div class="loan-form-error" role="alert" data-return-error hidden></div>
+                    <div class="loan-success" role="status" data-return-success hidden></div>
+                </section>
+            </div>
+
+            <section class="loan-panel">
+                <div class="loan-panel-header"><div><h2>{% trans "Items" %}</h2></div></div>
+                <div class="loan-table-wrap">
+                    <table class="loan-table">
+                        <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Out" %}</th><th scope="col">{% trans "Return qty" %}</th><th scope="col">{% trans "Condition" %}</th></tr></thead>
+                        <tbody data-return-body></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

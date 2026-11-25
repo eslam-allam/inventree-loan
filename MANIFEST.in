@@ -1,0 +1,5 @@
+include README.md
+include LICENSE
+recursive-include inventree_loan/templates *
+recursive-include inventree_loan/static *
+recursive-include inventree_loan/migrations *.py

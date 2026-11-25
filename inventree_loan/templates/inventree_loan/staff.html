@@ -1,0 +1,81 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Loan staff" %}{% endblock %}
+{% block content %}
+<div class="loan-page" data-staff-page>
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "Administration" %}</p>
+            <h1>{% trans "Loan staff" %}</h1>
+            <p class="loan-subtitle">{% trans "Grant Approver, Loan Desk, or Administrator access. Superusers always have full access." %}</p>
+        </div>
+        <a class="loan-btn" href="{% url 'plugin:loan:setup' %}">{% trans "Loan setup" %}</a>
+    </header>
+
+    <div class="loan-grid loan-grid-2">
+        <section class="loan-panel">
+            <div class="loan-panel-header"><div><h2>{% trans "Add or update a staff member" %}</h2><p class="loan-muted">{% trans "Only a superuser can grant Loan Administrator." %}</p></div></div>
+            <div class="loan-form-grid">
+                <div class="loan-field loan-field-full">
+                    <label class="loan-label" for="staff-username">{% trans "Username" %}</label>
+                    <input class="loan-input" id="staff-username" autocomplete="off" placeholder="{% trans 'InvenTree username' %}" data-staff-username>
+                </div>
+                <div class="loan-field">
+                    <label class="loan-label" for="staff-role">{% trans "Role" %}</label>
+                    <select class="loan-select" id="staff-role" data-staff-role>
+                        <option value="approver">{% trans "Approver" %}</option>
+                        <option value="desk">{% trans "Loan desk" %}</option>
+                        {% if request.user.is_superuser %}<option value="admin">{% trans "Loan administrator" %}</option>{% endif %}
+                    </select>
+                </div>
+                <div class="loan-field loan-field-align-end">
+                    <button class="loan-btn loan-btn-primary" type="button" data-staff-add>{% trans "Save role" %}</button>
+                </div>
+            </div>
+            <div class="loan-form-error" role="alert" data-staff-error hidden></div>
+            <div class="loan-success" role="status" data-staff-success hidden></div>
+        </section>
+
+        <section class="loan-panel loan-panel-muted">
+            <h2>{% trans "Role guide" %}</h2>
+            <dl class="loan-details">
+                <dt>{% trans "Approver" %}</dt><dd>{% trans "View all requests and loans, approve or reject requests." %}</dd>
+                <dt>{% trans "Loan desk" %}</dt><dd>{% trans "Everything an approver can do, plus hand out, return, renew and mark items lost." %}</dd>
+                <dt>{% trans "Administrator" %}</dt><dd>{% trans "Everything, plus manage staff and configure the plugin." %}</dd>
+            </dl>
+            <p class="loan-small loan-muted">{% trans "Loan roles are separate from InvenTree's stock roles. Enable 'Require core stock permission' in plugin settings if you also want to require stock change permission." %}</p>
+        </section>
+    </div>
+
+    <section class="loan-panel">
+        <div class="loan-panel-header"><div><h2>{% trans "Current staff" %}</h2></div></div>
+        {% if staff %}
+            <div class="loan-table-wrap">
+                <table class="loan-table">
+                    <thead><tr><th scope="col">{% trans "User" %}</th><th scope="col">{% trans "Role" %}</th><th scope="col">{% trans "Active" %}</th><th scope="col">{% trans "Added by" %}</th><th scope="col"><span class="loan-sr-only">{% trans "Actions" %}</span></th></tr></thead>
+                    <tbody>
+                    {% for item in staff %}
+                        <tr data-staff-row="{{ item.pk }}">
+                            <td><strong>{{ item.user.get_full_name|default:item.user.username }}</strong><div class="loan-muted">{{ item.user.username }}</div></td>
+                            <td>{{ item.get_role_display }}</td>
+                            <td>{{ item.active|yesno:"Yes,No" }}</td>
+                            <td class="loan-muted">{{ item.created_by|default:"—" }}</td>
+                            <td class="loan-actions-cell">
+                                <button class="loan-btn loan-btn-sm" type="button" data-staff-toggle="{{ item.pk }}" data-active="{{ item.active|yesno:'true,false' }}">{% if item.active %}{% trans "Deactivate" %}{% else %}{% trans "Activate" %}{% endif %}</button>
+                                <button class="loan-btn loan-btn-sm loan-btn-danger" type="button" data-staff-remove="{{ item.pk }}">{% trans "Remove" %}</button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="loan-empty">
+                <i class="fas fa-user-shield" aria-hidden="true"></i>
+                <strong>{% trans "No loan staff yet" %}</strong>
+                <span>{% trans "Superusers can still approve and hand out items." %}</span>
+            </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

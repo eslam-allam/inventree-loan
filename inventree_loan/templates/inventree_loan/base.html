@@ -1,0 +1,125 @@
+{% load static i18n %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{% block title %}Loans{% endblock %} · InvenTree</title>
+    <link rel="stylesheet" href="{% static 'css/inventree.css' %}">
+    <link rel="stylesheet" href="{% static 'plugins/loan/loan.css' %}">
+</head>
+<body class="loan-body" data-page="{{ page|default:'' }}">
+<a class="loan-skip-link" href="#loan-main">{% trans "Skip to content" %}</a>
+
+<header class="loan-topbar">
+    <div class="loan-topbar-inner">
+        <a class="loan-brand" href="{% url 'plugin:loan:dashboard' %}">
+            <span class="loan-brand-mark" aria-hidden="true"><i class="fas fa-box-open"></i></span>
+            <span>{% trans "Loans" %}</span>
+        </a>
+
+        <nav class="loan-nav" aria-label="{% trans 'Loan navigation' %}">
+            <a class="loan-nav-link {% if page == 'dashboard' %}is-active{% endif %}" href="{% url 'plugin:loan:dashboard' %}">{% trans "Dashboard" %}</a>
+            {% if can_request %}
+                <a class="loan-nav-link {% if page == 'request-new' %}is-active{% endif %}" href="{% url 'plugin:loan:request_new' %}">{% trans "New request" %}</a>
+            {% endif %}
+            <a class="loan-nav-link {% if page == 'requests' or page == 'request-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:requests' %}">{% trans "Requests" %}</a>
+            <a class="loan-nav-link {% if page == 'loans' or page == 'loan-detail' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}">{% trans "Loans" %}</a>
+            {% if is_desk %}
+                <a class="loan-nav-link {% if page == 'checkout' %}is-active{% endif %}" href="{% url 'plugin:loan:checkout' %}">{% trans "Hand out" %}</a>
+                <a class="loan-nav-link {% if page == 'return' %}is-active{% endif %}" href="{% url 'plugin:loan:return' %}">{% trans "Return" %}</a>
+            {% endif %}
+            {% if is_manager %}
+                <a class="loan-nav-link {% if page == 'history' %}is-active{% endif %}" href="{% url 'plugin:loan:history' %}">{% trans "History" %}</a>
+            {% endif %}
+            {% if is_admin %}
+                <a class="loan-nav-link {% if page == 'staff' %}is-active{% endif %}" href="{% url 'plugin:loan:staff' %}">{% trans "Staff" %}</a>
+                <a class="loan-nav-link {% if page == 'setup' %}is-active{% endif %}" href="{% url 'plugin:loan:setup' %}">{% trans "Setup" %}</a>
+            {% endif %}
+        </nav>
+
+        <div class="loan-user">
+            {% if loan_role %}
+                <span class="loan-role-pill">{{ loan_role|title }}</span>
+            {% endif %}
+            <span class="loan-user-name">{{ request.user.get_full_name|default:request.user.username }}</span>
+            <a class="loan-link-muted" href="/web/">{% trans "InvenTree" %}</a>
+        </div>
+    </div>
+</header>
+
+{% if is_manager and not setup_configured %}
+    <div class="loan-alert loan-alert-warning" role="alert">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        <div>
+            <strong>{% trans "Loan setup is incomplete." %}</strong>
+            {% trans "Configure the On Loan location and custom stock status before handing out items." %}
+            <a href="{% url 'plugin:loan:setup' %}">{% trans "Open setup" %}</a>
+        </div>
+    </div>
+{% endif %}
+
+{% if messages %}
+    <div class="loan-messages" role="status" aria-live="polite">
+        {% for message in messages %}
+            <div class="loan-alert {% if message.tags %}loan-alert-{{ message.tags }}{% endif %}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<main id="loan-main" class="loan-main" tabindex="-1">
+    {% block content %}{% endblock %}
+</main>
+
+<nav class="loan-bottom-nav" aria-label="{% trans 'Mobile navigation' %}">
+    <a href="{% url 'plugin:loan:dashboard' %}" class="{% if page == 'dashboard' %}is-active{% endif %}"><i class="fas fa-house" aria-hidden="true"></i><span>{% trans "Home" %}</span></a>
+    <a href="{% url 'plugin:loan:requests' %}" class="{% if page == 'requests' or page == 'request-detail' %}is-active{% endif %}"><i class="fas fa-clipboard-list" aria-hidden="true"></i><span>{% trans "Requests" %}</span></a>
+    <a href="{% url 'plugin:loan:loans' %}" class="{% if page == 'loans' or page == 'loan-detail' %}is-active{% endif %}"><i class="fas fa-box" aria-hidden="true"></i><span>{% trans "Loans" %}</span></a>
+    {% if is_desk %}
+        <a href="{% url 'plugin:loan:checkout' %}" class="{% if page == 'checkout' %}is-active{% endif %}"><i class="fas fa-barcode" aria-hidden="true"></i><span>{% trans "Scan" %}</span></a>
+    {% else %}
+        <a href="{% url 'plugin:loan:request_new' %}" class="{% if page == 'request-new' %}is-active{% endif %}"><i class="fas fa-plus" aria-hidden="true"></i><span>{% trans "Request" %}</span></a>
+    {% endif %}
+</nav>
+
+<script>
+window.LOAN = {
+    page: "{{ page|escapejs }}",
+    csrf: "{{ csrf_token }}",
+    user: {
+        id: {{ request.user.pk|default:"null" }},
+        name: "{{ request.user.get_full_name|default:request.user.username|escapejs }}",
+        isManager: {{ is_manager|yesno:"true,false" }},
+        isDesk: {{ is_desk|yesno:"true,false" }},
+        isAdmin: {{ is_admin|yesno:"true,false" }}
+    },
+    api: {
+        catalog: "{% url 'plugin:loan:api_catalog' %}",
+        requests: "{% url 'plugin:loan:api_requests' %}",
+        loans: "{% url 'plugin:loan:api_loans' %}",
+        checkout: "{% url 'plugin:loan:api_checkout' %}",
+        scan: "{% url 'plugin:loan:api_scan' %}",
+        stats: "{% url 'plugin:loan:api_stats' %}",
+        userSearch: "{% url 'plugin:loan:api_user_search' %}",
+        staff: "{% url 'plugin:loan:api_staff' %}"
+    },
+    urls: {
+        dashboard: "{% url 'plugin:loan:dashboard' %}",
+        requests: "{% url 'plugin:loan:requests' %}",
+        requestNew: "{% url 'plugin:loan:request_new' %}",
+        requestDetail: "{% url 'plugin:loan:requests' %}",
+        loans: "{% url 'plugin:loan:loans' %}",
+        loanDetail: "{% url 'plugin:loan:loans' %}",
+        checkout: "{% url 'plugin:loan:checkout' %}",
+        returnPage: "{% url 'plugin:loan:return' %}",
+        receipt: "{% url 'plugin:loan:loans' %}"
+    }
+};
+</script>
+<script src="{% static 'plugins/loan/loan.js' %}" defer></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

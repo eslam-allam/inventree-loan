@@ -1,0 +1,119 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{{ loan.reference }}{% endblock %}
+{% block content %}
+<div class="loan-page" data-loan-id="{{ loan.pk }}">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow"><a href="{% url 'plugin:loan:loans' %}">{% trans "Loans" %}</a></p>
+            <h1>{{ loan.reference }}</h1>
+            <p class="loan-subtitle">
+                {{ loan.borrower.get_full_name|default:loan.borrower.username }} · {% trans "issued" %} {{ loan.issued_at|date:"M j, Y" }}
+                {% if loan.request %} · <a href="{% url 'plugin:loan:request_detail' loan.request.pk %}">{{ loan.request.reference }}</a>{% endif %}
+            </p>
+        </div>
+        <div class="loan-page-actions">
+            {% include "inventree_loan/_status_badge.html" with status=loan.status label=loan.get_status_display %}
+            <a class="loan-btn" href="{% url 'plugin:loan:receipt' loan.pk %}" target="_blank" rel="noopener"><i class="fas fa-print" aria-hidden="true"></i> {% trans "Receipt" %}</a>
+            {% if is_desk and loan.is_open %}
+                <a class="loan-btn loan-btn-primary" href="{% url 'plugin:loan:return' %}?loan_id={{ loan.pk }}"><i class="fas fa-rotate-left" aria-hidden="true"></i> {% trans "Return items" %}</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="loan-grid loan-grid-2">
+        <section class="loan-panel">
+            <div class="loan-panel-header"><div><h2>{% trans "Loan details" %}</h2></div></div>
+            <dl class="loan-details">
+                <dt>{% trans "Borrower" %}</dt><dd>{{ loan.borrower.get_full_name|default:loan.borrower.username }}{% if loan.borrower.email %} <span class="loan-muted">&lt;{{ loan.borrower.email }}&gt;</span>{% endif %}</dd>
+                <dt>{% trans "Issued by" %}</dt><dd>{{ loan.issued_by.get_full_name|default:loan.issued_by.username }}</dd>
+                <dt>{% trans "Issued at" %}</dt><dd>{{ loan.issued_at|date:"M j, Y H:i" }}</dd>
+                <dt>{% trans "Due at" %}</dt><dd class="{% if loan.is_overdue %}loan-text-danger{% endif %}">{{ loan.due_at|date:"M j, Y H:i" }}{% if loan.is_overdue %} · {{ loan.days_overdue }} {% trans "days overdue" %}{% endif %}</dd>
+                {% if loan.returned_at %}<dt>{% trans "Returned at" %}</dt><dd>{{ loan.returned_at|date:"M j, Y H:i" }}</dd>{% endif %}
+                <dt>{% trans "Renewals" %}</dt><dd>{{ loan.renewals }}</dd>
+                <dt>{% trans "Location" %}</dt><dd>{{ loan.checkout_location|default:"—" }}</dd>
+                {% if loan.notes %}<dt>{% trans "Notes" %}</dt><dd>{{ loan.notes|linebreaksbr }}</dd>{% endif %}
+            </dl>
+        </section>
+
+        <section class="loan-panel loan-qr-panel">
+            <div>
+                <h2>{% trans "Loan QR" %}</h2>
+                <p class="loan-muted">{% trans "Scan this code at the loan desk to open the return workflow." %}</p>
+                <img class="loan-qr" src="{% url 'plugin:loan:qr' loan.pk %}" alt="{% trans 'QR code for this loan' %}" width="220" height="220">
+                <p class="loan-small loan-muted">{{ request.scheme }}://{{ request.get_host }}{% url 'plugin:loan:loan_detail' loan.pk %}</p>
+            </div>
+            {% if is_desk and loan.is_open %}
+                <div class="loan-renew">
+                    <h3>{% trans "Renew loan" %}</h3>
+                    <p class="loan-muted">{% trans "Extend the due date for this borrower." %}</p>
+                    <label class="loan-label" for="renew-due">{% trans "New due date" %}</label>
+                    <div class="loan-inline-form">
+                        <input class="loan-input" type="date" id="renew-due" data-renew-due>
+                        <button class="loan-btn" type="button" data-renew-submit>{% trans "Renew" %}</button>
+                    </div>
+                    <div class="loan-form-error" role="alert" data-renew-error hidden></div>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+
+    <section class="loan-panel">
+        <div class="loan-panel-header"><div><h2>{% trans "Items" %}</h2><p class="loan-muted">{{ loan.item_count }} {% trans "line(s)" %}</p></div></div>
+        <div class="loan-table-wrap">
+            <table class="loan-table">
+                <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Qty" %}</th><th scope="col">{% trans "Returned" %}</th><th scope="col">{% trans "Remaining" %}</th><th scope="col">{% trans "Status" %}</th>{% if is_desk %}<th scope="col"><span class="loan-sr-only">{% trans "Actions" %}</span></th>{% endif %}</tr></thead>
+                <tbody>
+                {% for item in loan.items.all %}
+                    <tr class="{% if item.lost %}loan-row-danger{% endif %}">
+                        <td><strong>{{ item.part.name }}</strong>{% if item.part.IPN %}<div class="loan-muted">{{ item.part.IPN }}</div>{% endif %}</td>
+                        <td>{{ item.stock_item_display }}</td>
+                        <td>{{ item.quantity }}</td>
+                        <td>{{ item.returned_quantity }}</td>
+                        <td>{{ item.remaining_quantity }}</td>
+                        <td>
+                            {% if item.lost %}
+                                <span class="loan-badge loan-badge-dark"><i class="fas fa-circle-question" aria-hidden="true"></i> {% trans "Lost" %}</span>
+                            {% elif item.is_returned %}
+                                <span class="loan-badge loan-badge-success"><i class="fas fa-check" aria-hidden="true"></i> {% trans "Returned" %}</span>
+                            {% else %}
+                                <span class="loan-badge loan-badge-info"><i class="fas fa-box" aria-hidden="true"></i> {% trans "On loan" %}</span>
+                            {% endif %}
+                            {% if item.condition_on_return %}<div class="loan-muted">{{ item.get_condition_on_return_display }}</div>{% endif %}
+                        </td>
+                        {% if is_desk %}
+                            <td class="loan-actions-cell">
+                                {% if item.is_open %}
+                                    <a class="loan-btn loan-btn-sm" href="{% url 'plugin:loan:return' %}?loan_id={{ loan.pk }}">{% trans "Return" %}</a>
+                                    <button class="loan-btn loan-btn-sm loan-btn-danger" type="button" data-lost-item="{{ item.pk }}">{% trans "Lost" %}</button>
+                                {% endif %}
+                            </td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="loan-panel">
+        <div class="loan-panel-header"><div><h2>{% trans "Timeline" %}</h2></div></div>
+        {% if events %}
+            <ul class="loan-timeline">
+            {% for event in events %}
+                <li>
+                    <span class="loan-timeline-dot" aria-hidden="true"></span>
+                    <div>
+                        <strong>{{ event.get_event_type_display }}</strong>
+                        {% if event.notes %}<span class="loan-muted"> — {{ event.notes }}</span>{% endif %}
+                        <div class="loan-muted">{{ event.actor_name|default:"System" }} · {{ event.created|date:"M j, Y H:i" }}</div>
+                    </div>
+                </li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p class="loan-muted">{% trans "No events yet." %}</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

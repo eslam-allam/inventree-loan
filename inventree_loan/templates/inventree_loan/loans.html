@@ -1,0 +1,73 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Loans" %}{% endblock %}
+{% block content %}
+<div class="loan-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "Loans" %}</p>
+            <h1>{% if is_manager %}{% trans "All loans" %}{% else %}{% trans "My loans" %}{% endif %}</h1>
+            <p class="loan-subtitle">{% trans "Due dates, returned items and overdue loans in one place." %}</p>
+        </div>
+        <div class="loan-page-actions">
+            {% if is_desk %}<a class="loan-btn" href="{% url 'plugin:loan:checkout' %}"><i class="fas fa-barcode" aria-hidden="true"></i> {% trans "Hand out" %}</a>{% endif %}
+            {% if is_manager %}<a class="loan-btn" href="{% url 'plugin:loan:api_export_loans' %}"><i class="fas fa-download" aria-hidden="true"></i> {% trans "Export CSV" %}</a>{% endif %}
+        </div>
+    </header>
+
+    <nav class="loan-filter-bar" aria-label="{% trans 'Filter loans' %}">
+        <a class="loan-chip {% if not status_filter %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}">{% trans "All" %}</a>
+        <a class="loan-chip {% if status_filter == 'active' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}?status=active">{% trans "Active" %}</a>
+        <a class="loan-chip {% if status_filter == 'overdue' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}?status=overdue">{% trans "Overdue" %}</a>
+        <a class="loan-chip {% if status_filter == 'partially_returned' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}?status=partially_returned">{% trans "Partially returned" %}</a>
+        <a class="loan-chip {% if status_filter == 'returned' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}?status=returned">{% trans "Returned" %}</a>
+        <a class="loan-chip {% if status_filter == 'lost' %}is-active{% endif %}" href="{% url 'plugin:loan:loans' %}?status=lost">{% trans "Lost" %}</a>
+    </nav>
+
+    <section class="loan-panel">
+        {% if loans %}
+            <div class="loan-table-wrap">
+                <table class="loan-table loan-table-interactive">
+                    <thead>
+                        <tr>
+                            <th scope="col">{% trans "Loan" %}</th>
+                            {% if is_manager %}<th scope="col">{% trans "Borrower" %}</th>{% endif %}
+                            <th scope="col">{% trans "Items" %}</th>
+                            <th scope="col">{% trans "Issued" %}</th>
+                            <th scope="col">{% trans "Due" %}</th>
+                            <th scope="col">{% trans "Status" %}</th>
+                            <th scope="col"><span class="loan-sr-only">{% trans "Actions" %}</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for loan in loans %}
+                        <tr class="{% if loan.is_overdue %}loan-row-danger{% endif %}">
+                            <td><a class="loan-ref" href="{% url 'plugin:loan:loan_detail' loan.pk %}">{{ loan.reference }}</a></td>
+                            {% if is_manager %}<td>{{ loan.borrower.get_full_name|default:loan.borrower.username }}</td>{% endif %}
+                            <td>{{ loan.item_count }}</td>
+                            <td class="loan-muted">{{ loan.issued_at|date:"M j, Y" }}</td>
+                            <td class="{% if loan.is_overdue %}loan-text-danger{% endif %}">
+                                {{ loan.due_at|date:"M j, Y" }}
+                                {% if loan.is_overdue %}<div class="loan-muted">{{ loan.days_overdue }} {% trans "days overdue" %}</div>{% endif %}
+                            </td>
+                            <td>{% include "inventree_loan/_status_badge.html" with status=loan.status label=loan.get_status_display %}</td>
+                            <td class="loan-actions-cell">
+                                <a class="loan-btn loan-btn-sm" href="{% url 'plugin:loan:loan_detail' loan.pk %}">{% trans "View" %}</a>
+                                {% if is_desk and loan.is_open %}<a class="loan-btn loan-btn-sm loan-btn-primary" href="{% url 'plugin:loan:return' %}?loan_id={{ loan.pk }}">{% trans "Return" %}</a>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="loan-empty loan-empty-large">
+                <i class="fas fa-box-open" aria-hidden="true"></i>
+                <strong>{% trans "No loans found" %}</strong>
+                <span>{% trans "Loans will appear here once items are handed out." %}</span>
+                {% if is_desk %}<a class="loan-btn loan-btn-primary" href="{% url 'plugin:loan:checkout' %}">{% trans "Hand out an item" %}</a>{% endif %}
+            </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

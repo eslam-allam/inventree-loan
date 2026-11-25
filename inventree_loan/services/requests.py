@@ -1,0 +1,403 @@
+"""Request creation and decision services."""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
+
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
+from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+
+from ..config import get_loanable_category, get_setting
+from ..models import (
+    Loan,
+    LoanEvent,
+    LoanEventType,
+    LoanRequest,
+    LoanRequestLine,
+    LoanRequestStatus,
+)
+from ..permissions import can_request
+from .notifications import notify_request_decided, notify_request_submitted
+
+
+def _decimal(value, default=Decimal("1")) -> Decimal:
+    if value is None or value == "":
+        return default
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValidationError({"quantity": _("Enter a valid quantity")}) from None
+
+
+def _loan_location():
+    from .setup import get_loan_location
+
+    return get_loan_location()
+
+
+def _active_loan_stock_ids():
+    from ..models import LoanItem
+
+    return LoanItem.objects.filter(returned_at__isnull=True, lost=False).values(
+        "stock_item_id"
+    )
+
+
+def available_stock_queryset(part):
+    """Return stock items for a part that may currently be loaned."""
+    from stock.models import StockItem
+    from stock.status_codes import StockStatusGroups
+
+    queryset = StockItem.objects.filter(
+        part=part,
+        quantity__gt=0,
+        location__isnull=False,
+        customer__isnull=True,
+        sales_order__isnull=True,
+        belongs_to__isnull=True,
+        build__isnull=True,
+        status__in=StockStatusGroups.AVAILABLE_CODES,
+    ).exclude(pk__in=_active_loan_stock_ids())
+
+    location = _loan_location()
+    if location is not None:
+        queryset = queryset.exclude(location=location)
+    return queryset
+
+
+def stock_item_available_quantity(item) -> Decimal:
+    """Return the quantity of a stock item that can be loaned right now."""
+    if item is None or item.quantity <= 0:
+        return Decimal(0)
+    if not item.is_in_stock():
+        return Decimal(0)
+    location = _loan_location()
+    if location is not None and item.location_id == location.pk:
+        return Decimal(0)
+    from ..models import LoanItem
+
+    if LoanItem.objects.filter(
+        stock_item=item, returned_at__isnull=True, lost=False
+    ).exists():
+        return Decimal(0)
+    return max(item.unallocated_quantity(), Decimal(0))
+
+
+def part_availability(part) -> dict:
+    """Return available and on-loan quantities for a part."""
+    from ..models import LoanItem
+
+    available = Decimal(0)
+    for item in available_stock_queryset(part).select_related("location"):
+        available += max(item.unallocated_quantity(), Decimal(0))
+
+    remaining = ExpressionWrapper(
+        F("quantity") - F("returned_quantity"),
+        output_field=DecimalField(max_digits=15, decimal_places=5),
+    )
+    on_loan = LoanItem.objects.filter(
+        part=part, returned_at__isnull=True, lost=False
+    ).aggregate(total=Sum(remaining))
+    on_loan_quantity = on_loan.get("total") or Decimal(0)
+
+    return {
+        "available": available,
+        "on_loan": on_loan_quantity,
+        "total": available + on_loan_quantity,
+    }
+
+
+def catalog_parts(search: str = "", limit: int = 20) -> list[dict]:
+    """Return a limited, requester-safe part catalog."""
+    from part.models import Part
+
+    queryset = Part.objects.filter(active=True, virtual=False).select_related("category")
+    if search:
+        queryset = queryset.filter(
+            Q(name__icontains=search)
+            | Q(IPN__icontains=search)
+            | Q(description__icontains=search)
+        )
+
+    category = get_loanable_category()
+    if category:
+        queryset = queryset.filter(category__path__startswith=category.path)
+
+    results = []
+    for part in queryset.order_by("name")[:limit]:
+        availability = part_availability(part)
+        image = None
+        try:
+            if part.image:
+                image = part.image.url
+        except Exception:  # pragma: no cover
+            image = None
+        results.append({
+            "pk": part.pk,
+            "name": part.name,
+            "ipn": part.IPN or "",
+            "description": part.description or "",
+            "category": part.category.name if part.category else "",
+            "units": getattr(part, "units", "") or "",
+            "trackable": bool(getattr(part, "trackable", False)),
+            "available": float(availability["available"]),
+            "on_loan": float(availability["on_loan"]),
+            "image": image,
+        })
+    return results
+
+
+def _validate_dates(needed_by, return_by):
+    today = timezone.localdate()
+    needed_by = needed_by or today
+    if needed_by < today:
+        raise ValidationError({"needed_by": _("Pickup date cannot be in the past")})
+
+    if return_by is None:
+        days = int(get_setting("LOAN_DURATION_DAYS", 14) or 14)
+        return_by = needed_by + timedelta(days=max(days, 1))
+    if return_by < needed_by:
+        raise ValidationError(
+            {"return_by": _("Return date must be on or after the pickup date")}
+        )
+    return needed_by, return_by
+
+
+def _validate_lines(lines: list[dict]) -> list[dict]:
+    from part.models import Part
+    from stock.models import StockItem
+
+    if not lines:
+        raise ValidationError({"lines": _("At least one item is required")})
+
+    max_items = int(get_setting("MAX_ITEMS_PER_REQUEST", 25) or 25)
+    if len(lines) > max_items:
+        raise ValidationError({"lines": _("Too many items in one request")})
+
+    category = get_loanable_category()
+    cleaned = []
+
+    for raw in lines:
+        part_id = raw.get("part_id") or raw.get("part")
+        part = raw.get("part") if isinstance(raw.get("part"), Part) else None
+        if part is None:
+            if not part_id:
+                raise ValidationError({"lines": _("Each line requires a part")})
+            try:
+                part = Part.objects.get(pk=part_id)
+            except (Part.DoesNotExist, ValueError, TypeError):
+                raise ValidationError({"lines": _("A selected part no longer exists")}) from None
+
+        if not part.active:
+            raise ValidationError({"lines": _("Inactive parts cannot be requested")})
+        if category and (not part.category or not part.category.path.startswith(category.path)):
+            raise ValidationError(
+                {"lines": _("This part is not in the loanable category")}
+            )
+
+        quantity = _decimal(raw.get("quantity"), Decimal("1"))
+        if quantity <= 0:
+            raise ValidationError({"quantity": _("Quantity must be greater than zero")})
+        if getattr(part, "trackable", False) and quantity != quantity.to_integral_value():
+            raise ValidationError(
+                {"quantity": _("Trackable parts must be requested in whole units")}
+            )
+
+        stock_item = raw.get("stock_item") if isinstance(raw.get("stock_item"), StockItem) else None
+        stock_item_id = raw.get("stock_item_id") or raw.get("stock_item")
+        if stock_item is None and stock_item_id:
+            try:
+                stock_item = StockItem.objects.get(pk=stock_item_id)
+            except (StockItem.DoesNotExist, ValueError, TypeError):
+                raise ValidationError(
+                    {"stock_item": _("The selected stock item no longer exists")}
+                ) from None
+
+        if stock_item is not None:
+            if stock_item.part_id != part.pk:
+                raise ValidationError(
+                    {"stock_item": _("The stock item does not belong to the selected part")}
+                )
+            if stock_item.serialized:
+                quantity = Decimal(1)
+            available = stock_item_available_quantity(stock_item)
+            if available <= 0:
+                raise ValidationError(
+                    {"stock_item": _("This stock item is not available to loan")}
+                )
+            if quantity > available:
+                raise ValidationError(
+                    {"quantity": _("Only %(available)s are available") % {"available": available}}
+                )
+
+        cleaned.append({
+            "part": part,
+            "stock_item": stock_item,
+            "quantity": quantity,
+            "notes": (raw.get("notes") or "").strip(),
+        })
+
+    return cleaned
+
+
+def _check_active_loan_limit(user):
+    limit = int(get_setting("MAX_ACTIVE_LOANS_PER_USER", 0) or 0)
+    if limit <= 0:
+        return
+    active = Loan.objects.filter(
+        borrower=user, status__in=["active", "partially_returned", "overdue"]
+    ).count()
+    if active >= limit:
+        raise ValidationError(
+            _("This user already has the maximum number of active loans")
+        )
+
+
+@transaction.atomic
+def create_request(
+    user,
+    lines: list[dict],
+    *,
+    purpose: str = "",
+    needed_by: date | None = None,
+    return_by: date | None = None,
+    notes: str = "",
+    contact: str = "",
+    project: str = "",
+    responsibility_ack: bool = False,
+) -> LoanRequest:
+    """Create a loan request with validated lines."""
+    if not can_request(user):
+        raise PermissionDenied("You do not have permission to request loans")
+
+    if get_setting("REQUIRE_RESPONSIBILITY_ACK", True) and not responsibility_ack:
+        raise ValidationError(
+            {"responsibility_ack": _("Please acknowledge the loan responsibility statement")}
+        )
+    if not (purpose or "").strip():
+        raise ValidationError({"purpose": _("Please describe the purpose of the loan")})
+
+    _check_active_loan_limit(user)
+    cleaned = _validate_lines(lines)
+    needed_by, return_by = _validate_dates(needed_by, return_by)
+
+    request = LoanRequest.objects.create(
+        requester=user,
+        purpose=(purpose or "").strip(),
+        needed_by=needed_by,
+        return_by=return_by,
+        notes=(notes or "").strip(),
+        contact=(contact or "").strip(),
+        project=(project or "").strip(),
+        responsibility_ack=responsibility_ack,
+    )
+
+    for line in cleaned:
+        LoanRequestLine.objects.create(
+            request=request,
+            part=line["part"],
+            stock_item=line["stock_item"],
+            quantity=line["quantity"],
+            notes=line["notes"],
+        )
+
+    LoanEvent.record(
+        request=request,
+        event_type=LoanEventType.REQUESTED,
+        actor=user,
+        notes=(purpose or "").strip(),
+        lines=len(cleaned),
+    )
+    notify_request_submitted(request)
+    return request
+
+
+@transaction.atomic
+def approve_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
+    """Approve a pending request."""
+    from ..permissions import can_approve
+
+    if not can_approve(actor):
+        raise PermissionDenied("You do not have permission to approve requests")
+
+    request = LoanRequest.objects.select_for_update().get(pk=request.pk)
+    if request.status != LoanRequestStatus.PENDING:
+        raise ValidationError(_("Only pending requests can be approved"))
+
+    request.status = LoanRequestStatus.APPROVED
+    request.decided_by = actor
+    request.decided_at = timezone.now()
+    request.decision_notes = (notes or "").strip()
+    request.save(update_fields=["status", "decided_by", "decided_at", "decision_notes", "updated"])
+
+    LoanEvent.record(
+        request=request,
+        event_type=LoanEventType.APPROVED,
+        actor=actor,
+        notes=(notes or "").strip(),
+    )
+    notify_request_decided(request)
+    return request
+
+
+@transaction.atomic
+def reject_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
+    """Reject a pending request."""
+    from ..permissions import can_approve
+
+    if not can_approve(actor):
+        raise PermissionDenied("You do not have permission to reject requests")
+
+    request = LoanRequest.objects.select_for_update().get(pk=request.pk)
+    if request.status != LoanRequestStatus.PENDING:
+        raise ValidationError(_("Only pending requests can be rejected"))
+
+    request.status = LoanRequestStatus.REJECTED
+    request.decided_by = actor
+    request.decided_at = timezone.now()
+    request.decision_notes = (notes or "").strip()
+    request.save(update_fields=["status", "decided_by", "decided_at", "decision_notes", "updated"])
+
+    LoanEvent.record(
+        request=request,
+        event_type=LoanEventType.REJECTED,
+        actor=actor,
+        notes=(notes or "").strip(),
+    )
+    notify_request_decided(request)
+    return request
+
+
+@transaction.atomic
+def cancel_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
+    """Cancel a request, respecting ownership and state."""
+    from ..permissions import can_cancel_request
+
+    if not can_cancel_request(actor, request):
+        raise PermissionDenied("You cannot cancel this request")
+
+    request = LoanRequest.objects.select_for_update().get(pk=request.pk)
+    if request.status in {
+        LoanRequestStatus.FULFILLED,
+        LoanRequestStatus.REJECTED,
+        LoanRequestStatus.CANCELLED,
+    }:
+        raise ValidationError(_("This request can no longer be cancelled"))
+
+    request.status = LoanRequestStatus.CANCELLED
+    request.decided_by = actor
+    request.decided_at = timezone.now()
+    request.decision_notes = (notes or "").strip()
+    request.save(update_fields=["status", "decided_by", "decided_at", "decision_notes", "updated"])
+
+    LoanEvent.record(
+        request=request,
+        event_type=LoanEventType.CANCELLED,
+        actor=actor,
+        notes=(notes or "").strip(),
+    )
+    return request

@@ -1,0 +1,68 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "History" %}{% endblock %}
+{% block content %}
+<div class="loan-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "Audit" %}</p>
+            <h1>{% trans "Loan history" %}</h1>
+            <p class="loan-subtitle">{% trans "Every request, decision, handout, reminder and return." %}</p>
+        </div>
+        <div class="loan-page-actions">
+            <a class="loan-btn" href="{% url 'plugin:loan:api_export_requests' %}"><i class="fas fa-download" aria-hidden="true"></i> {% trans "Requests CSV" %}</a>
+            <a class="loan-btn" href="{% url 'plugin:loan:api_export_loans' %}"><i class="fas fa-download" aria-hidden="true"></i> {% trans "Loans CSV" %}</a>
+        </div>
+    </header>
+
+    <form class="loan-filter-bar" method="get" action="{% url 'plugin:loan:history' %}">
+        <label class="loan-sr-only" for="event_type">{% trans "Event type" %}</label>
+        <select class="loan-select" id="event_type" name="event_type" onchange="this.form.submit()">
+            <option value="">{% trans "All events" %}</option>
+            <option value="requested" {% if event_type == 'requested' %}selected{% endif %}>{% trans "Request submitted" %}</option>
+            <option value="approved" {% if event_type == 'approved' %}selected{% endif %}>{% trans "Request approved" %}</option>
+            <option value="rejected" {% if event_type == 'rejected' %}selected{% endif %}>{% trans "Request rejected" %}</option>
+            <option value="cancelled" {% if event_type == 'cancelled' %}selected{% endif %}>{% trans "Request cancelled" %}</option>
+            <option value="issued" {% if event_type == 'issued' %}selected{% endif %}>{% trans "Loan issued" %}</option>
+            <option value="returned" {% if event_type == 'returned' %}selected{% endif %}>{% trans "Loan returned" %}</option>
+            <option value="partially_returned" {% if event_type == 'partially_returned' %}selected{% endif %}>{% trans "Partial return" %}</option>
+            <option value="renewed" {% if event_type == 'renewed' %}selected{% endif %}>{% trans "Renewed" %}</option>
+            <option value="overdue" {% if event_type == 'overdue' %}selected{% endif %}>{% trans "Overdue reminder" %}</option>
+            <option value="lost" {% if event_type == 'lost' %}selected{% endif %}>{% trans "Lost" %}</option>
+            <option value="staff_added" {% if event_type == 'staff_added' %}selected{% endif %}>{% trans "Staff added" %}</option>
+        </select>
+        <a class="loan-chip {% if not event_type %}is-active{% endif %}" href="{% url 'plugin:loan:history' %}">{% trans "Reset" %}</a>
+    </form>
+
+    <section class="loan-panel">
+        {% if events %}
+            <div class="loan-table-wrap">
+                <table class="loan-table">
+                    <thead><tr><th scope="col">{% trans "When" %}</th><th scope="col">{% trans "Event" %}</th><th scope="col">{% trans "Actor" %}</th><th scope="col">{% trans "Record" %}</th><th scope="col">{% trans "Notes" %}</th></tr></thead>
+                    <tbody>
+                    {% for event in events %}
+                        <tr>
+                            <td class="loan-nowrap">{{ event.created|date:"M j, Y H:i" }}</td>
+                            <td><strong>{{ event.get_event_type_display }}</strong></td>
+                            <td>{{ event.actor_name|default:"System" }}</td>
+                            <td>
+                                {% if event.loan %}<a class="loan-ref" href="{% url 'plugin:loan:loan_detail' event.loan.pk %}">{{ event.loan.reference }}</a>{% endif %}
+                                {% if event.request %}<a class="loan-ref" href="{% url 'plugin:loan:request_detail' event.request.pk %}">{{ event.request.reference }}</a>{% endif %}
+                                {% if not event.loan and not event.request %}<span class="loan-muted">—</span>{% endif %}
+                            </td>
+                            <td class="loan-muted">{{ event.notes|default:"—" }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="loan-empty loan-empty-large">
+                <i class="fas fa-clock-rotate-left" aria-hidden="true"></i>
+                <strong>{% trans "No events found" %}</strong>
+                <span>{% trans "Try a different event type." %}</span>
+            </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

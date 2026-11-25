@@ -1,0 +1,58 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Loan setup" %}{% endblock %}
+{% block content %}
+<div class="loan-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "Administration" %}</p>
+            <h1>{% trans "Loan setup" %}</h1>
+            <p class="loan-subtitle">{% trans "Configure the stock location and status used while items are on loan." %}</p>
+        </div>
+        <a class="loan-btn" href="{{ plugin_settings_url }}" target="_blank" rel="noopener">{% trans "Plugin settings" %}</a>
+    </header>
+
+    <div class="loan-grid loan-grid-2">
+        <section class="loan-panel">
+            <div class="loan-panel-header"><div><h2>{% trans "Current configuration" %}</h2></div></div>
+            <dl class="loan-details">
+                <dt>{% trans "On Loan location" %}</dt>
+                <dd>{% if loan_location %}<strong>{{ loan_location.pathstring }}</strong>{% else %}<span class="loan-text-danger">{% trans "Not configured" %}</span>{% endif %}</dd>
+                <dt>{% trans "On Loan status" %}</dt>
+                <dd>{% if on_loan_status %}<strong>{{ on_loan_status.label }}</strong> <span class="loan-muted">({% trans "key" %} {{ on_loan_status.key }}, {% trans "logical" %} {{ on_loan_status.logical_key }})</span>{% else %}<span class="loan-text-danger">{% trans "Not configured" %}</span>{% endif %}</dd>
+                <dt>{% trans "Stock lock" %}</dt>
+                <dd>{% trans "Loaned items cannot be moved, edited, deleted or allocated through normal InvenTree flows." %}</dd>
+            </dl>
+            {% if not loan_location or not on_loan_status %}
+                <div class="loan-alert loan-alert-warning" role="alert">{% trans "Run setup before handing out items." %}</div>
+            {% else %}
+                <div class="loan-alert loan-alert-success" role="status">{% trans "Setup is complete." %}</div>
+            {% endif %}
+        </section>
+
+        <section class="loan-panel">
+            <div class="loan-panel-header"><div><h2>{% trans "Run or repair setup" %}</h2><p class="loan-muted">{% trans "This is idempotent and safe to run again." %}</p></div></div>
+            <form method="post" action="{% url 'plugin:loan:setup' %}">
+                {% csrf_token %}
+                <div class="loan-field">
+                    <label class="loan-label" for="location_name">{% trans "Location name" %}</label>
+                    <input class="loan-input" id="location_name" name="location_name" value="On Loan" maxlength="100">
+                </div>
+                <label class="loan-check">
+                    <input type="checkbox" name="create_location" value="1" {% if not loan_location %}checked{% endif %}>
+                    <span>{% trans "Create the On Loan location if it does not exist" %}</span>
+                </label>
+                <button class="loan-btn loan-btn-primary" type="submit">{% trans "Run setup" %}</button>
+            </form>
+            <hr>
+            <h3>{% trans "What setup does" %}</h3>
+            <ul class="loan-bullets">
+                <li>{% trans "Creates a custom stock status with the logical value Quarantined, labelled On Loan." %}</li>
+                <li>{% trans "Creates or selects a non-structural stock location." %}</li>
+                <li>{% trans "Saves the location in the plugin settings." %}</li>
+            </ul>
+            <p class="loan-small loan-muted">{% trans "The custom status is what makes an item unavailable. The location keeps the stock history and return path clear." %}</p>
+        </section>
+    </div>
+</div>
+{% endblock %}

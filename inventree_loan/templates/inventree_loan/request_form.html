@@ -1,0 +1,117 @@
+{% extends "inventree_loan/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "New loan request" %}{% endblock %}
+{% block content %}
+<div class="loan-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-eyebrow">{% trans "Request" %}</p>
+            <h1>{% trans "New loan request" %}</h1>
+            <p class="loan-subtitle">{% trans "Tell us what you need and when. A loan desk member will review it." %}</p>
+        </div>
+        <a class="loan-btn" href="{% url 'plugin:loan:requests' %}">{% trans "My requests" %}</a>
+    </header>
+
+    <div class="loan-request-layout">
+        <div class="loan-stack">
+            <section class="loan-panel">
+                <div class="loan-panel-header">
+                    <div><h2>{% trans "1. Choose items" %}</h2><p class="loan-muted">{% trans "Search by name, IPN, or scan an asset barcode." %}</p></div>
+                </div>
+                <form class="loan-scan-form" data-request-scan-form>
+                    <label class="loan-label" for="request-scan">{% trans "Scan a specific asset" %}</label>
+                    <div class="loan-scan-row">
+                        <i class="fas fa-barcode loan-scan-icon" aria-hidden="true"></i>
+                        <input id="request-scan" type="text" autocomplete="off" placeholder="{% trans 'Scan or type a barcode…' %}" data-request-scan>
+                        <button class="loan-btn" type="submit">{% trans "Add" %}</button>
+                    </div>
+                    <div class="loan-scan-result" role="status" aria-live="polite" data-request-scan-result></div>
+                </form>
+
+                <div class="loan-search-wrap">
+                    <label class="loan-label" for="catalog-search">{% trans "Search the loan catalog" %}</label>
+                    <div class="loan-search-box">
+                        <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                        <input id="catalog-search" type="search" autocomplete="off" placeholder="{% trans 'Part name, IPN or description…' %}" data-catalog-search>
+                    </div>
+                    <div class="loan-catalog-results" data-catalog-results aria-live="polite"></div>
+                </div>
+            </section>
+
+            <section class="loan-panel">
+                <div class="loan-panel-header">
+                    <div><h2>{% trans "2. Request details" %}</h2><p class="loan-muted">{% trans "A clear purpose helps approvers prioritize." %}</p></div>
+                </div>
+                <div class="loan-form-grid">
+                    <div class="loan-field loan-field-full">
+                        <label class="loan-label" for="purpose">{% trans "Purpose / intended use" %} <span class="loan-required">*</span></label>
+                        <input class="loan-input" id="purpose" name="purpose" required maxlength="500" placeholder="{% trans 'e.g. Lab demo for the electronics course' %}">
+                    </div>
+                    <div class="loan-field">
+                        <label class="loan-label" for="project">{% trans "Project / course / department" %}</label>
+                        <input class="loan-input" id="project" name="project" maxlength="255">
+                    </div>
+                    <div class="loan-field">
+                        <label class="loan-label" for="contact">{% trans "Contact phone" %}</label>
+                        <input class="loan-input" id="contact" name="contact" maxlength="255" placeholder="{% trans 'Optional' %}">
+                    </div>
+                    <div class="loan-field">
+                        <label class="loan-label" for="needed_by">{% trans "Pickup date" %} <span class="loan-required">*</span></label>
+                        <input class="loan-input" type="date" id="needed_by" name="needed_by" value="{{ today|date:'Y-m-d' }}" required>
+                    </div>
+                    <div class="loan-field">
+                        <label class="loan-label" for="return_by">{% trans "Return by" %} <span class="loan-required">*</span></label>
+                        <input class="loan-input" type="date" id="return_by" name="return_by" value="{{ default_return|date:'Y-m-d' }}" required>
+                    </div>
+                    <div class="loan-field loan-field-full">
+                        <label class="loan-label" for="notes">{% trans "Additional notes" %}</label>
+                        <textarea class="loan-textarea" id="notes" name="notes" rows="3" placeholder="{% trans 'Accessories needed, preferred variant, special handling…' %}"></textarea>
+                    </div>
+                    <label class="loan-check loan-field-full">
+                        <input type="checkbox" id="responsibility_ack" name="responsibility_ack" required>
+                        <span>{% trans "I agree to return the items by the due date and accept responsibility for loss or damage." %}</span>
+                    </label>
+                </div>
+            </section>
+        </div>
+
+        <aside class="loan-stack">
+            <section class="loan-panel loan-panel-sticky">
+                <div class="loan-panel-header">
+                    <div><h2>{% trans "Your request" %}</h2><p class="loan-muted"><span data-cart-count>0</span> {% trans "items" %}</p></div>
+                </div>
+                <div class="loan-cart-empty" data-cart-empty>
+                    <i class="fas fa-box-open" aria-hidden="true"></i>
+                    <strong>{% trans "No items yet" %}</strong>
+                    <span>{% trans "Search or scan to add an item." %}</span>
+                </div>
+                <div class="loan-table-wrap" data-cart-wrap hidden>
+                    <table class="loan-table">
+                        <thead><tr><th scope="col">{% trans "Item" %}</th><th scope="col">{% trans "Qty" %}</th><th scope="col"><span class="loan-sr-only">{% trans "Remove" %}</span></th></tr></thead>
+                        <tbody data-cart-body></tbody>
+                    </table>
+                </div>
+                <div class="loan-cart-total">
+                    <span>{% trans "Total quantity" %}</span>
+                    <strong data-cart-total>0</strong>
+                </div>
+                <p class="loan-muted loan-small">{% trans "Availability is checked again when the loan is handed out." %}</p>
+                <button class="loan-btn loan-btn-primary loan-btn-block" type="button" data-request-submit>{% trans "Submit request" %}</button>
+                <div class="loan-form-error" role="alert" data-request-error hidden></div>
+                <div class="loan-success" role="status" data-request-success hidden></div>
+            </section>
+            <section class="loan-panel loan-panel-muted">
+                <h3>{% trans "What happens next?" %}</h3>
+                <ol class="loan-steps">
+                    <li>{% trans "A loan desk member reviews your request." %}</li>
+                    <li>{% trans "You are notified when it is approved or rejected." %}</li>
+                    <li>{% trans "Collect the items and return them by the due date." %}</li>
+                </ol>
+                <p class="loan-small loan-muted">{% trans "Requests do not require stock permissions." %}</p>
+            </section>
+        </aside>
+    </div>
+</div>
+
+<form id="request-form" data-request-form data-default-return="{{ default_return|date:'Y-m-d' }}" data-max-items="{{ max_items }}" hidden></form>
+{% endblock %}

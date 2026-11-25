@@ -1,0 +1,154 @@
+"""Notification helpers for in-app messages and optional email."""
+
+from __future__ import annotations
+
+from django.conf import settings as django_settings
+from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
+from django.core.mail import send_mail
+from django.urls import reverse
+
+from ..config import get_setting
+
+
+def _truncate(value: str, length: int = 250) -> str:
+    return (value or "")[:length]
+
+
+def notify_user(user, name: str, message: str, target=None, link: str = ""):
+    """Create an in-app notification for a single user."""
+    if user is None or target is None:
+        return
+    from common.models import NotificationMessage
+
+    try:
+        NotificationMessage.objects.create(
+            target_content_type=ContentType.objects.get_for_model(target),
+            target_object_id=str(target.pk),
+            user=user,
+            category="loan",
+            name=_truncate(name),
+            message=_truncate(message),
+            link=link or None,
+        )
+    except Exception:  # pragma: no cover - notifications must never break a loan action
+        pass
+
+
+def notify_users(users, name: str, message: str, target=None, link: str = ""):
+    """Create in-app notifications for a collection of users."""
+    seen = set()
+    for user in users:
+        if user is None or user.pk in seen:
+            continue
+        seen.add(user.pk)
+        notify_user(user, name, message, target=target, link=link)
+
+
+def manager_users():
+    """Return active loan staff, with superusers as a fallback."""
+    User = get_user_model()
+    users = list(
+        User.objects.filter(loan_staff__active=True, is_active=True).distinct()
+    )
+    if users:
+        return users
+    return list(User.objects.filter(is_superuser=True, is_active=True))
+
+
+def send_email(user, subject: str, message: str):
+    """Send an email if the plugin and Django are configured for it."""
+    if not user or not user.email:
+        return
+    if not get_setting("ENABLE_EMAIL", False):
+        return
+    from_email = get_setting("EMAIL_FROM", "") or django_settings.DEFAULT_FROM_EMAIL
+    try:
+        send_mail(subject, message, from_email, [user.email], fail_silently=True)
+    except Exception:  # pragma: no cover
+        pass
+
+
+def request_link(request) -> str:
+    """Absolute-ish URL for a request detail page."""
+    try:
+        return reverse("plugin:loan:request_detail", args=[request.pk])
+    except Exception:  # pragma: no cover
+        return ""
+
+
+def loan_link(loan) -> str:
+    """Absolute-ish URL for a loan detail page."""
+    try:
+        return reverse("plugin:loan:loan_detail", args=[loan.pk])
+    except Exception:  # pragma: no cover
+        return ""
+
+
+def notify_request_submitted(request):
+    """Notify approvers that a new request needs attention."""
+    name = f"New loan request {request.reference}"
+    message = f"{request.requester} requested {request.item_count} item(s)."
+    link = request_link(request)
+    notify_users(manager_users(), name, message, target=request, link=link)
+    for user in manager_users():
+        send_email(user, name, f"{message}\n\n{link}")
+
+
+def notify_request_decided(request):
+    """Notify the requester about an approval or rejection."""
+    name = f"Loan request {request.reference} {request.get_status_display().lower()}"
+    message = request.decision_notes or f"Your request is now {request.get_status_display()}."
+    link = request_link(request)
+    notify_user(request.requester, name, message, target=request, link=link)
+    send_email(request.requester, name, f"{message}\n\n{link}")
+
+
+def notify_loan_issued(loan):
+    """Notify the borrower that items have been handed out."""
+    name = f"Loan {loan.reference} issued"
+    message = f"{loan.item_count} item(s) due {loan.due_at:%Y-%m-%d}."
+    link = loan_link(loan)
+    notify_user(loan.borrower, name, message, target=loan, link=link)
+    send_email(loan.borrower, name, f"{message}\n\n{link}")
+
+
+def notify_loan_returned(loan):
+    """Notify the borrower that the loan is closed."""
+    name = f"Loan {loan.reference} returned"
+    message = "All items have been returned. Thank you."
+    link = loan_link(loan)
+    notify_user(loan.borrower, name, message, target=loan, link=link)
+    send_email(loan.borrower, name, f"{message}\n\n{link}")
+
+
+def notify_loan_renewed(loan):
+    """Notify the borrower about a new due date."""
+    name = f"Loan {loan.reference} renewed"
+    message = f"The due date is now {loan.due_at:%Y-%m-%d}."
+    link = loan_link(loan)
+    notify_user(loan.borrower, name, message, target=loan, link=link)
+    send_email(loan.borrower, name, f"{message}\n\n{link}")
+
+
+def notify_loan_reminder(loan, overdue: bool = False):
+    """Notify the borrower about an upcoming or missed due date."""
+    if overdue:
+        name = f"Loan {loan.reference} is overdue"
+        message = f"Please return the items as soon as possible. Due {loan.due_at:%Y-%m-%d}."
+    else:
+        name = f"Loan {loan.reference} is due soon"
+        message = f"Please return the items by {loan.due_at:%Y-%m-%d}."
+    link = loan_link(loan)
+    notify_user(loan.borrower, name, message, target=loan, link=link)
+    send_email(loan.borrower, name, f"{message}\n\n{link}")
+
+
+def notify_item_lost(loan_item):
+    """Notify managers and the borrower when an item is marked lost."""
+    loan = loan_item.loan
+    name = f"Item marked lost on {loan.reference}"
+    message = f"{loan_item.part} was marked lost."
+    link = loan_link(loan)
+    notify_user(loan.borrower, name, message, target=loan, link=link)
+    notify_users(manager_users(), name, message, target=loan, link=link)

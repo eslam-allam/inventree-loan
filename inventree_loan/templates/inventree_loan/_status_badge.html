@@ -1,0 +1,25 @@
+{% if status == 'pending' %}
+    <span class="loan-badge loan-badge-pending"><i class="fas fa-clock" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'approved' %}
+    <span class="loan-badge loan-badge-approved"><i class="fas fa-circle-check" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'rejected' %}
+    <span class="loan-badge loan-badge-danger"><i class="fas fa-circle-xmark" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'cancelled' %}
+    <span class="loan-badge loan-badge-muted"><i class="fas fa-ban" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'fulfilled' %}
+    <span class="loan-badge loan-badge-success"><i class="fas fa-check" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'partially_fulfilled' %}
+    <span class="loan-badge loan-badge-warning"><i class="fas fa-circle-half-stroke" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'active' %}
+    <span class="loan-badge loan-badge-info"><i class="fas fa-arrow-right-from-bracket" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'partially_returned' %}
+    <span class="loan-badge loan-badge-warning"><i class="fas fa-rotate-left" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'returned' %}
+    <span class="loan-badge loan-badge-success"><i class="fas fa-circle-check" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'overdue' %}
+    <span class="loan-badge loan-badge-danger"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'lost' %}
+    <span class="loan-badge loan-badge-dark"><i class="fas fa-circle-question" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% else %}
+    <span class="loan-badge loan-badge-muted">{{ label|default:status }}</span>
+{% endif %}
