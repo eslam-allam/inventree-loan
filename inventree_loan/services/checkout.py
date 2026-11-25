@@ -22,7 +22,7 @@ from ..models import (
     LoanStatus,
 )
 from ..permissions import can_handout
-from ..utils import local_today
+from ..utils import clean_signature, local_today
 from .notifications import notify_loan_issued
 from .requests import (
     _check_active_loan_limit,
@@ -60,7 +60,7 @@ def _issue_stock_item(
     original_status = stock_item.status
     original_custom_status = stock_item.get_custom_status()
     original_location = stock_item.location
-    note = f"Loaned to {loan.borrower} ({loan.reference})"
+    note = f"Loaned to {loan.borrower_display} ({loan.reference})"
 
     if quantity < stock_item.quantity:
         moved = stock_item.splitStock(
@@ -168,6 +168,7 @@ def checkout_request(
     due_at=None,
     notes: str = "",
     allow_pending: bool = False,
+    signature: str = "",
 ) -> Loan:
     """Issue the items for an approved request."""
     if not can_handout(actor):
@@ -196,12 +197,19 @@ def checkout_request(
     elif request.status != LoanRequestStatus.APPROVED:
         raise ValidationError(_("Only pending or approved requests can be issued"))
 
-    if not request.requester.is_active:
+    if request.requester_id and not request.requester.is_active:
         raise ValidationError(_("The requester's account is inactive"))
     if not request.lines.exists():
         raise ValidationError(_("This request has no items"))
 
-    _check_active_loan_limit(request.requester)
+    if request.requester_id:
+        _check_active_loan_limit(request.requester)
+
+    signature = clean_signature(
+        signature,
+        required=bool(get_setting("REQUIRE_SIGNATURE_ON_HANDOUT", True)),
+        field="signature",
+    )
 
     loan_location = get_loan_location()
     if loan_location is None:
@@ -217,10 +225,15 @@ def checkout_request(
     loan = Loan.objects.create(
         request=request,
         borrower=request.requester,
+        borrower_name=request.requester_display,
+        borrower_email=request.requester_email_display,
+        borrower_phone=request.requester_phone_display,
         issued_by=actor,
         due_at=_resolve_due_at(due_at, default_date=request.return_by),
         notes=(notes or "").strip() or request.notes,
         checkout_location=loan_location,
+        signature_checkout=signature,
+        signature_checkout_at=timezone.now() if signature else None,
         status=LoanStatus.ACTIVE,
     )
 
@@ -252,6 +265,7 @@ def checkout_request(
         notes=(notes or "").strip(),
         items=len(issued_items),
         due_at=loan.due_at.isoformat(),
+        signed=bool(signature),
     )
     notify_loan_issued(loan)
     return loan
@@ -266,6 +280,7 @@ def checkout_direct(
     due_at=None,
     notes: str = "",
     purpose: str = "Walk-in loan",
+    signature: str = "",
 ) -> Loan:
     """Create and immediately issue a walk-in loan without a prior request."""
     if not can_handout(actor):
@@ -273,10 +288,18 @@ def checkout_direct(
     if not borrower.is_active:
         raise ValidationError(_("The borrower's account is inactive"))
 
+    signature = clean_signature(
+        signature,
+        required=bool(get_setting("REQUIRE_SIGNATURE_ON_HANDOUT", True)),
+        field="signature",
+    )
+
     cleaned = _validate_lines(lines)
     due = _resolve_due_at(due_at)
     request = LoanRequest.objects.create(
         requester=borrower,
+        requester_name=borrower.get_full_name() or borrower.username,
+        requester_email=borrower.email,
         status=LoanRequestStatus.APPROVED,
         purpose=(purpose or "").strip(),
         needed_by=local_today(),
@@ -295,5 +318,10 @@ def checkout_direct(
             notes=line["notes"],
         )
     return checkout_request(
-        request, actor, due_at=due, notes=notes, allow_pending=True
+        request,
+        actor,
+        due_at=due,
+        notes=notes,
+        allow_pending=True,
+        signature=signature,
     )

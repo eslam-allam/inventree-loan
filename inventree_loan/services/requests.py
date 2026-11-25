@@ -21,7 +21,7 @@ from ..models import (
     LoanRequestStatus,
 )
 from ..permissions import can_request
-from ..utils import local_today
+from ..utils import clean_signature, local_today
 from .notifications import notify_request_decided, notify_request_submitted
 
 
@@ -112,9 +112,65 @@ def part_availability(part) -> dict:
     }
 
 
-def catalog_parts(search: str = "", limit: int = 20) -> list[dict]:
+def _part_image(part):
+    if not part.image:
+        return None
+    from django.urls import reverse
+
+    try:
+        return reverse("plugin:loan:api_public_part_image", args=[part.pk])
+    except Exception:  # pragma: no cover
+        return None
+
+
+def catalog_categories() -> list[dict]:
+    """Return the category tree available to public requesters."""
+    from part.models import Part, PartCategory
+
+    base = get_loanable_category()
+
+    # Only expose branches which contain at least one active part.  Empty
+    # placeholder categories make the public catalogue harder to browse.
+    part_paths = (
+        Part.objects.filter(active=True, virtual=False, category__isnull=False)
+        .values_list("category__pathstring", flat=True)
+        .distinct()
+    )
+    prefixes = set()
+    for path in part_paths:
+        if not path:
+            continue
+        bits = path.split("/")
+        for index in range(1, len(bits) + 1):
+            prefixes.add("/".join(bits[:index]))
+
+    queryset = PartCategory.objects.filter(pathstring__in=prefixes)
+    if base:
+        queryset = queryset.filter(
+            Q(pathstring=base.pathstring)
+            | Q(pathstring__startswith=f"{base.pathstring}/")
+        )
+
+    categories = []
+    for category in queryset.order_by("tree_id", "lft"):
+        categories.append({
+            "pk": category.pk,
+            "name": category.name,
+            "parent": category.parent_id,
+            "path": category.pathstring,
+            "depth": category.pathstring.count("/"),
+            "part_count": Part.objects.filter(
+                active=True, virtual=False, category=category
+            ).count(),
+        })
+    return categories
+
+
+def catalog_parts(
+    search: str = "", limit: int = 20, category_id: int | None = None
+) -> list[dict]:
     """Return a limited, requester-safe part catalog."""
-    from part.models import Part
+    from part.models import Part, PartCategory
 
     queryset = Part.objects.filter(active=True, virtual=False).select_related("category")
     if search:
@@ -124,32 +180,95 @@ def catalog_parts(search: str = "", limit: int = 20) -> list[dict]:
             | Q(description__icontains=search)
         )
 
-    category = get_loanable_category()
-    if category:
-        queryset = queryset.filter(category__path__startswith=category.path)
+    base = get_loanable_category()
+    if base:
+        queryset = queryset.filter(
+            Q(category__pathstring=base.pathstring)
+            | Q(category__pathstring__startswith=f"{base.pathstring}/")
+        )
+
+    if category_id:
+        category = PartCategory.objects.filter(pk=category_id).first()
+        if category:
+            queryset = queryset.filter(
+                Q(category__pathstring=category.pathstring)
+                | Q(category__pathstring__startswith=f"{category.pathstring}/")
+            )
 
     results = []
     for part in queryset.order_by("name")[:limit]:
         availability = part_availability(part)
-        image = None
-        try:
-            if part.image:
-                image = part.image.url
-        except Exception:  # pragma: no cover
-            image = None
         results.append({
             "pk": part.pk,
             "name": part.name,
             "ipn": part.IPN or "",
             "description": part.description or "",
             "category": part.category.name if part.category else "",
+            "category_id": part.category_id,
             "units": getattr(part, "units", "") or "",
             "trackable": bool(getattr(part, "trackable", False)),
             "available": float(availability["available"]),
             "on_loan": float(availability["on_loan"]),
-            "image": image,
+            "image": _part_image(part),
         })
     return results
+
+
+def part_detail(part_id: int) -> dict | None:
+    """Return public part details and the individual units available to loan."""
+    from part.models import Part
+
+    part = (
+        Part.objects.select_related("category")
+        .filter(pk=part_id, active=True, virtual=False)
+        .first()
+    )
+    if part is None:
+        return None
+
+    base = get_loanable_category()
+    if base and (
+        not part.category
+        or not (
+            part.category.pathstring == base.pathstring
+            or part.category.pathstring.startswith(f"{base.pathstring}/")
+        )
+    ):
+        return None
+
+    availability = part_availability(part)
+    stock_items = []
+    for item in available_stock_queryset(part).select_related("location").order_by(
+        "serial", "batch", "pk"
+    )[:100]:
+        available = max(item.unallocated_quantity(), Decimal(0))
+        if available <= 0:
+            continue
+        stock_items.append({
+            "pk": item.pk,
+            "label": item.serial or item.batch or f"Item #{item.pk}",
+            "serial": item.serial or "",
+            "batch": item.batch or "",
+            "quantity": float(item.quantity),
+            "available": float(available),
+            "location": item.location.pathstring if item.location else "",
+            "serialized": bool(item.serialized),
+        })
+
+    return {
+        "pk": part.pk,
+        "name": part.name,
+        "ipn": part.IPN or "",
+        "description": part.description or "",
+        "category": part.category.name if part.category else "",
+        "category_id": part.category_id,
+        "units": getattr(part, "units", "") or "",
+        "trackable": bool(getattr(part, "trackable", False)),
+        "available": float(availability["available"]),
+        "on_loan": float(availability["on_loan"]),
+        "image": _part_image(part),
+        "stock_items": stock_items,
+    }
 
 
 def _validate_dates(needed_by, return_by):
@@ -195,7 +314,13 @@ def _validate_lines(lines: list[dict]) -> list[dict]:
 
         if not part.active:
             raise ValidationError({"lines": _("Inactive parts cannot be requested")})
-        if category and (not part.category or not part.category.path.startswith(category.path)):
+        if category and (
+            not part.category
+            or not (
+                part.category.pathstring == category.pathstring
+                or part.category.pathstring.startswith(f"{category.pathstring}/")
+            )
+        ):
             raise ValidationError(
                 {"lines": _("This part is not in the loanable category")}
             )
@@ -270,10 +395,47 @@ def create_request(
     contact: str = "",
     project: str = "",
     responsibility_ack: bool = False,
+    requester_name: str = "",
+    requester_email: str = "",
+    requester_phone: str = "",
+    requester_organization: str = "",
+    requester_identifier: str = "",
+    signature: str = "",
+    allow_anonymous: bool = False,
+    require_signature: bool = True,
 ) -> LoanRequest:
-    """Create a loan request with validated lines."""
-    if not can_request(user):
-        raise PermissionDenied("You do not have permission to request loans")
+    """Create a loan request with validated lines.
+
+    Authenticated requesters use their account; anonymous requesters provide
+    their own contact details and signature through the public form.
+    """
+    if user is None:
+        if not allow_anonymous:
+            raise PermissionDenied("You do not have permission to request loans")
+        requester_name = (requester_name or "").strip()
+        requester_email = (requester_email or "").strip()
+        if not requester_name:
+            raise ValidationError({"requester_name": _("Enter your name")})
+        if not requester_email:
+            raise ValidationError({"requester_email": _("Enter your email address")})
+        from django.core.validators import validate_email
+
+        try:
+            validate_email(requester_email)
+        except Exception:
+            raise ValidationError(
+                {"requester_email": _("Enter a valid email address")}
+            ) from None
+    else:
+        if not can_request(user):
+            raise PermissionDenied("You do not have permission to request loans")
+        requester_name = (
+            (requester_name or "").strip()
+            or user.get_full_name()
+            or user.username
+        )
+        requester_email = (requester_email or "").strip() or user.email
+        requester_phone = (requester_phone or "").strip() or (contact or "").strip()
 
     if get_setting("REQUIRE_RESPONSIBILITY_ACK", True) and not responsibility_ack:
         raise ValidationError(
@@ -282,12 +444,24 @@ def create_request(
     if not (purpose or "").strip():
         raise ValidationError({"purpose": _("Please describe the purpose of the loan")})
 
-    _check_active_loan_limit(user)
+    require_signature = require_signature and bool(
+        get_setting("REQUIRE_REQUEST_SIGNATURE", True)
+    )
+    signature = clean_signature(signature, required=require_signature)
+
+    if user is not None:
+        _check_active_loan_limit(user)
     cleaned = _validate_lines(lines)
     needed_by, return_by = _validate_dates(needed_by, return_by)
 
     request = LoanRequest.objects.create(
         requester=user,
+        requester_name=requester_name,
+        requester_email=requester_email,
+        requester_phone=(requester_phone or "").strip(),
+        requester_organization=(requester_organization or "").strip(),
+        requester_identifier=(requester_identifier or "").strip(),
+        signature=signature,
         purpose=(purpose or "").strip(),
         needed_by=needed_by,
         return_by=return_by,
@@ -310,8 +484,10 @@ def create_request(
         request=request,
         event_type=LoanEventType.REQUESTED,
         actor=user,
+        actor_name="" if user is not None else requester_name,
         notes=(purpose or "").strip(),
         lines=len(cleaned),
+        signed=bool(signature),
     )
     notify_request_submitted(request)
     return request

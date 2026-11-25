@@ -163,6 +163,33 @@ class InvenTreeLoanPlugin(
             "default": True,
             "validator": bool,
         },
+        "ALLOW_ANONYMOUS_REQUESTS": {
+            "name": _("Allow public requests"),
+            "description": _(
+                "Allow people without an InvenTree account to submit loan requests "
+                "from the public form."
+            ),
+            "default": True,
+            "validator": bool,
+        },
+        "REQUIRE_REQUEST_SIGNATURE": {
+            "name": _("Require a signature on requests"),
+            "description": _("Requesters must sign when they submit a request."),
+            "default": True,
+            "validator": bool,
+        },
+        "REQUIRE_SIGNATURE_ON_HANDOUT": {
+            "name": _("Require a signature on handout"),
+            "description": _("Capture the borrower's signature when items are handed out."),
+            "default": True,
+            "validator": bool,
+        },
+        "REQUIRE_SIGNATURE_ON_RETURN": {
+            "name": _("Require a signature on return"),
+            "description": _("Capture the borrower's signature when items are returned."),
+            "default": True,
+            "validator": bool,
+        },
         "REQUIRE_STOCK_PERMISSION": {
             "name": _("Require core stock permission"),
             "description": _(

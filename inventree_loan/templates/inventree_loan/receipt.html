@@ -26,14 +26,14 @@
     <section class="loan-receipt-grid">
         <div>
             <h2>{% trans "Borrower" %}</h2>
-            <p><strong>{{ loan.borrower.get_full_name|default:loan.borrower.username }}</strong><br>
-            {{ loan.borrower.username }}{% if loan.borrower.email %}<br>{{ loan.borrower.email }}{% endif %}</p>
+            <p><strong>{{ loan.borrower_display }}</strong><br>
+            {{ loan.borrower_email_display }}{% if loan.borrower_phone_display %}<br>{{ loan.borrower_phone_display }}{% endif %}</p>
         </div>
         <div>
             <h2>{% trans "Loan dates" %}</h2>
             <p>{% trans "Issued" %}: {{ loan.issued_at|date:"M j, Y H:i" }}<br>
             {% trans "Due" %}: <strong>{{ loan.due_at|date:"M j, Y H:i" }}</strong><br>
-            {% trans "Issued by" %}: {{ loan.issued_by.get_full_name|default:loan.issued_by.username }}</p>
+            {% trans "Issued by" %}: {{ loan.issued_by|default:"—" }}</p>
         </div>
     </section>
 
@@ -60,8 +60,18 @@
     </section>
 
     <section class="loan-receipt-signatures">
-        <div><span>{% trans "Borrower signature" %}</span></div>
-        <div><span>{% trans "Loan desk signature" %}</span></div>
+        <div>
+            <span>{% trans "Request signature" %}</span>
+            {% if loan.request.signature %}<img class="loan-signature" src="{{ loan.request.signature }}" alt="{% trans 'Request signature' %}">{% endif %}
+        </div>
+        <div>
+            <span>{% trans "Handout signature" %}</span>
+            {% if loan.signature_checkout %}<img class="loan-signature" src="{{ loan.signature_checkout }}" alt="{% trans 'Handout signature' %}">{% endif %}
+        </div>
+        <div>
+            <span>{% trans "Return signature" %}</span>
+            {% if loan.signature_return %}<img class="loan-signature" src="{{ loan.signature_return }}" alt="{% trans 'Return signature' %}">{% endif %}
+        </div>
     </section>
 
     <footer class="loan-receipt-footer">

@@ -6,6 +6,8 @@ from django.contrib.auth import get_user_model
 from InvenTree.unit_test import InvenTreeAPITestCase
 from part.models import Part, PartCategory
 
+TEST_SIGNATURE = "data:image/png;base64,AAAA"
+
 from inventree_loan.models import (
     LoanRequest,
     LoanRequestLine,
@@ -53,6 +55,7 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
                 "needed_by": "2030-01-01",
                 "return_by": "2030-01-08",
                 "responsibility_ack": True,
+                "signature": TEST_SIGNATURE,
             },
             format="json",
         )

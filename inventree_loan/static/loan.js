@@ -327,77 +327,47 @@
        Request form
        ------------------------------------------------------------------ */
     function initRequestForm() {
-        const form = $('[data-request-form]');
-        if (!form) return;
-        const scanForm = $('[data-request-scan-form]');
-        const scanInput = $('[data-request-scan]');
-        const scanResult = $('[data-request-scan-result]');
-        const searchInput = $('[data-catalog-search]');
-        const searchResults = $('[data-catalog-results]');
-        const cartBody = $('[data-cart-body]');
-        const cartWrap = $('[data-cart-wrap]');
-        const cartEmpty = $('[data-cart-empty]');
-        const cartCount = $('[data-cart-count]');
-        const cartTotal = $('[data-cart-total]');
-        const submit = $('[data-request-submit]');
-        const errorBox = $('[data-request-error]');
-        const successBox = $('[data-request-success]');
-        const state = { lines: [] };
+        const root = $('[data-public-request]');
+        if (!root) return;
 
-        // Do not silently discard a request that already has items in it.
+        const scanForm = $('[data-request-scan-form]', root);
+        const scanInput = $('[data-request-scan]', root);
+        const scanResult = $('[data-request-scan-result]', root);
+        const searchInput = $('[data-public-search]', root);
+        const resultsContainer = $('[data-public-results]', root);
+        const resultCount = $('[data-public-result-count]', root);
+        const heading = $('[data-public-heading]', root);
+        const categoryButtons = $$('[data-category-id]', root);
+        const cartBody = $('[data-cart-body]', root);
+        const cartWrap = $('[data-cart-wrap]', root);
+        const cartEmpty = $('[data-cart-empty]', root);
+        const cartCount = $('[data-cart-count]', root);
+        const cartTotal = $('[data-cart-total]', root);
+        const submit = $('[data-request-submit]', root);
+        const errorBox = $('[data-request-error]', root);
+        const successBox = $('[data-request-success]', root);
+        const continueButton = $('[data-scroll-to-details]', root);
+        const partDialog = $('[data-part-dialog]', document);
+        const partDialogContent = $('[data-part-dialog-content]', partDialog);
+        const state = { lines: [], parts: new Map(), category: '', search: '' };
+        let loadSequence = 0;
+
         window.addEventListener('beforeunload', (event) => {
             if (!state.lines.length) return;
             event.preventDefault();
             event.returnValue = '';
         });
 
-        const addPart = (part, quantity = 1) => {
-            const existing = state.lines.find((line) => !line.stock_item_id && line.part_id === part.pk);
-            if (existing) {
-                existing.quantity += quantity;
-            } else {
-                state.lines.push({
-                    part_id: part.pk,
-                    name: part.name,
-                    ipn: part.ipn || '',
-                    quantity,
-                    available: num(part.available),
-                    trackable: Boolean(part.trackable),
-                    stock_item_id: null,
-                    label: ''
-                });
-            }
-            renderCart();
-            if (scanResult) {
-                scanResult.className = 'loan-scan-result is-success';
-                scanResult.textContent = `${part.name} added to the request.`;
-            }
-        };
-
-        const addStockItem = (item, part) => {
-            if (state.lines.some((line) => line.stock_item_id === item.pk)) {
-                if (scanResult) {
-                    scanResult.className = 'loan-scan-result is-error';
-                    scanResult.textContent = 'This asset is already in the request.';
-                }
-                return;
-            }
-            state.lines.push({
-                part_id: item.part,
-                name: part.name,
-                ipn: part.ipn || '',
-                quantity: 1,
-                available: num(item.quantity),
-                trackable: true,
-                stock_item_id: item.pk,
-                label: item.serial || `#${item.pk}`
+        const scrollToDetails = () => {
+            const details = $('#request-details');
+            if (!details) return;
+            details.scrollIntoView({
+                behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                block: 'start'
             });
-            renderCart();
-            if (scanResult) {
-                scanResult.className = 'loan-scan-result is-success';
-                scanResult.textContent = `${part.name} (${item.serial || 'asset'}) added.`;
-            }
+            window.setTimeout(() => $('#requester_name')?.focus(), 350);
         };
+        continueButton?.addEventListener('click', scrollToDetails);
 
         const renderCart = () => {
             cartCount.textContent = String(state.lines.length);
@@ -437,37 +407,253 @@
             });
         };
 
+        const addPart = (part, quantity = 1) => {
+            const existing = state.lines.find((line) => !line.stock_item_id && line.part_id === part.pk);
+            if (existing) {
+                existing.quantity = num(existing.quantity) + num(quantity);
+            } else {
+                state.lines.push({
+                    part_id: part.pk,
+                    name: part.name,
+                    ipn: part.ipn || '',
+                    quantity: num(quantity) || 1,
+                    available: num(part.available),
+                    trackable: Boolean(part.trackable),
+                    stock_item_id: null,
+                    label: ''
+                });
+            }
+            renderCart();
+        };
+
+        const addStockItem = (item, part) => {
+            if (state.lines.some((line) => line.stock_item_id === item.pk)) {
+                if (scanResult) {
+                    scanResult.className = 'catalog-scan-result is-error';
+                    scanResult.textContent = 'This asset is already in the request.';
+                }
+                return;
+            }
+            state.lines.push({
+                part_id: part.pk,
+                name: part.name || item.part_name,
+                ipn: part.ipn || item.ipn || '',
+                quantity: 1,
+                available: num(item.available ?? item.quantity),
+                trackable: true,
+                stock_item_id: item.pk,
+                label: item.serial || item.label || `#${item.pk}`
+            });
+            renderCart();
+        };
+
+        const closePartDialog = () => {
+            if (partDialog?.open) partDialog.close();
+        };
+
+        const renderPartDialog = (part) => {
+            const stockItems = part.stock_items || [];
+            const availabilityClass = part.available <= 0 ? 'is-none' : part.available < 3 ? 'is-low' : '';
+            const image = `<i class="fas fa-box" aria-hidden="true"></i>${part.image ? `<img src="${esc(part.image)}" alt="" loading="lazy" onerror="this.remove()">` : ''}`;
+            const stockRows = stockItems.map((item) => `
+                <div class="stock-row">
+                    <div class="stock-row-main">
+                        <div class="stock-row-title">${esc(item.label || `Item #${item.pk}`)}</div>
+                        <div class="stock-row-meta">${esc(item.location || 'No location')} · ${num(item.available)} available</div>
+                    </div>
+                    <button class="btn btn-small btn-primary" type="button" data-dialog-add-stock="${item.pk}" ${num(item.available) <= 0 ? 'disabled' : ''}>Add</button>
+                </div>`).join('');
+            const addControl = stockItems.length
+                ? (part.trackable
+                    ? `<p class="stock-row-meta">Choose a specific unit from the list below.</p>`
+                    : `<div class="quantity-add">
+                        <label class="loan-label" for="dialog-quantity">Quantity</label>
+                        <input id="dialog-quantity" type="number" min="0.00001" step="any" value="1" max="${part.available}" data-dialog-quantity>
+                        <button class="btn btn-primary" type="button" data-dialog-add-part>Add</button>
+                    </div>`)
+                : `<p class="part-dialog-desc">No units are available to borrow right now.</p>`;
+
+            partDialogContent.innerHTML = `
+                <div class="part-dialog-head">
+                    <div>
+                        <h2 id="part-dialog-title">${esc(part.name)}</h2>
+                        <p>${esc(part.ipn || 'No part number')}${part.category ? ` · ${esc(part.category)}` : ''}</p>
+                    </div>
+                    <button class="btn btn-quiet btn-small" type="button" data-close-part>Close</button>
+                </div>
+                <div class="part-dialog-layout">
+                    <div class="part-dialog-image">${image}</div>
+                    <div>
+                        <span class="availability ${availabilityClass}">${part.available > 0 ? `${num(part.available)} available` : 'Unavailable'}</span>
+                        ${part.trackable ? '<span class="loan-badge loan-badge-info" style="margin-left:6px">Tracked asset</span>' : ''}
+                        <p class="part-dialog-desc">${esc(part.description || 'No description available.')}</p>
+                        <div class="part-dialog-section">${addControl}</div>
+                        ${stockItems.length ? `<div class="part-dialog-section"><h3>${part.trackable ? 'Available units' : 'Stock'}</h3><div class="stock-list">${stockRows}</div></div>` : ''}
+                    </div>
+                </div>`;
+
+            partDialogContent.querySelector('[data-close-part]')?.addEventListener('click', closePartDialog);
+            partDialogContent.querySelector('[data-dialog-add-part]')?.addEventListener('click', () => {
+                const quantity = num(partDialogContent.querySelector('[data-dialog-quantity]')?.value || 1);
+                addPart(part, quantity);
+                closePartDialog();
+            });
+            partDialogContent.querySelectorAll('[data-dialog-add-stock]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const item = stockItems.find((entry) => String(entry.pk) === button.dataset.dialogAddStock);
+                    if (item) {
+                        addStockItem(item, part);
+                        closePartDialog();
+                    }
+                });
+            });
+        };
+
+        const openPart = async (pk, fallback = null) => {
+            if (!partDialog || !partDialogContent) return;
+            if (!partDialog.open) partDialog.showModal();
+            partDialogContent.innerHTML = '<p class="catalog-empty">Loading item details…</p>';
+            try {
+                const part = await api(`${L.api.publicPart.replace('/0/', `/${pk}/`)}`);
+                renderPartDialog(part);
+            } catch (error) {
+                if (fallback) {
+                    renderPartDialog(fallback);
+                } else {
+                    partDialogContent.innerHTML = `<p class="catalog-empty">${esc(formatError(error))}</p>`;
+                }
+            }
+        };
+
+        if (partDialog) {
+            partDialog.addEventListener('click', (event) => {
+                if (event.target === partDialog) closePartDialog();
+            });
+        }
+
+        const renderResults = (parts) => {
+            if (resultCount) {
+                const suffix = parts.length >= 60 ? '+' : '';
+                resultCount.textContent = `${parts.length}${suffix} ${parts.length === 1 ? 'item' : 'items'}`;
+            }
+            if (!parts.length) {
+                resultsContainer.innerHTML = '<div class="catalog-empty">No matching items. Try another category or search.</div>';
+                return;
+            }
+            resultsContainer.innerHTML = parts.map((part) => {
+                const available = num(part.available);
+                const cls = available <= 0 ? 'is-none' : available < 3 ? 'is-low' : '';
+                const image = `<i class="fas fa-box" aria-hidden="true"></i>${part.image ? `<img src="${esc(part.image)}" alt="" loading="lazy" onerror="this.remove()">` : ''}`;
+                return `<article class="part-card">
+                    <div class="part-card-image">${image}</div>
+                    <div class="part-card-body">
+                        <h3 class="part-card-title">${esc(part.name)}</h3>
+                        <div class="part-card-meta">${esc(part.ipn || 'No part number')}${part.category ? ` · ${esc(part.category)}` : ''}</div>
+                        <p class="part-card-desc">${esc(part.description || 'No description available.')}</p>
+                        <div class="part-card-foot">
+                            <span class="availability ${cls}">${available > 0 ? `${available} available` : 'Unavailable'}</span>
+                            <div class="part-card-actions">
+                                <button class="btn btn-small" type="button" data-open-part="${part.pk}">Details</button>
+                                <button class="btn btn-small btn-primary" type="button" data-add-part="${part.pk}" ${available <= 0 ? 'disabled' : ''}>Add</button>
+                            </div>
+                        </div>
+                    </div>
+                </article>`;
+            }).join('');
+            resultsContainer.querySelectorAll('[data-open-part]').forEach((button) => {
+                button.addEventListener('click', () => openPart(button.dataset.openPart));
+            });
+            resultsContainer.querySelectorAll('[data-add-part]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const part = state.parts.get(String(button.dataset.addPart));
+                    if (!part) return;
+                    if (part.trackable) {
+                        openPart(part.pk, part);
+                    } else {
+                        addPart(part, 1);
+                    }
+                });
+            });
+        };
+
+        const loadCatalog = async () => {
+            if (!resultsContainer) return;
+            const sequence = ++loadSequence;
+            resultsContainer.innerHTML = '<div class="catalog-empty">Loading catalogue…</div>';
+            const params = new URLSearchParams({ limit: '60' });
+            if (state.search) params.set('search', state.search);
+            if (state.category) params.set('category', state.category);
+            try {
+                const data = await api(`${L.api.publicCatalog}?${params.toString()}`);
+                if (sequence !== loadSequence) return;
+                const parts = data.results || [];
+                state.parts = new Map(parts.map((part) => [String(part.pk), part]));
+                renderResults(parts);
+            } catch (error) {
+                if (sequence !== loadSequence) return;
+                resultsContainer.innerHTML = `<div class="catalog-empty">${esc(formatError(error))}</div>`;
+            }
+        };
+
+        categoryButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                categoryButtons.forEach((item) => item.classList.remove('is-active'));
+                button.classList.add('is-active');
+                state.category = button.dataset.categoryId || '';
+                if (heading) {
+                    heading.textContent = button.querySelector('span')?.textContent || button.textContent;
+                }
+                loadCatalog();
+            });
+        });
+
         if (searchInput) {
             searchInput.addEventListener('input', debounce(() => {
-                searchCatalog(searchInput.value.trim(), searchResults, (part) => addPart(part));
-            }));
+                state.search = searchInput.value.trim();
+                loadCatalog();
+            }, 220));
         }
 
         const handleScan = async (barcode) => {
             if (!barcode) return;
             if (scanResult) {
-                scanResult.className = 'loan-scan-result';
+                scanResult.className = 'catalog-scan-result';
                 scanResult.textContent = 'Looking up barcode…';
             }
             try {
-                const found = await api(L.api.scan, { method: 'POST', body: JSON.stringify({ barcode }) });
+                const found = await api(L.api.publicScan, {
+                    method: 'POST',
+                    body: JSON.stringify({ barcode })
+                });
                 if (!found.success) {
                     if (scanResult) {
-                        scanResult.className = 'loan-scan-result is-error';
+                        scanResult.className = 'catalog-scan-result is-error';
                         scanResult.textContent = found.error || 'No match found.';
                     }
                     return;
                 }
                 if (found.type === 'stockitem') {
-                    addStockItem(found.data, { name: found.data.part_name, ipn: found.data.ipn });
+                    addStockItem(found.data, {
+                        pk: found.data.part,
+                        name: found.data.part_name,
+                        ipn: found.data.ipn
+                    });
+                    if (scanResult) {
+                        scanResult.className = 'catalog-scan-result is-success';
+                        scanResult.textContent = `${found.data.part_name} added to the request.`;
+                    }
                 } else if (found.type === 'part') {
-                    addPart({ ...found.data, available: 0 });
+                    openPart(found.data.pk, { ...found.data, available: 0, stock_items: [] });
+                    if (scanResult) {
+                        scanResult.className = 'catalog-scan-result is-success';
+                        scanResult.textContent = `Showing ${found.data.name}.`;
+                    }
                 } else {
-                    throw new Error('That barcode belongs to a loan, not a part.');
+                    throw new Error('That barcode belongs to a loan, not an item.');
                 }
             } catch (error) {
                 if (scanResult) {
-                    scanResult.className = 'loan-scan-result is-error';
+                    scanResult.className = 'catalog-scan-result is-error';
                     scanResult.textContent = formatError(error);
                 }
             }
@@ -482,11 +668,74 @@
             });
         }
 
+        // Signature pad
+        const signatureCanvas = $('[data-signature-canvas]', root);
+        let signatureValue = '';
+        let clearSignature = () => {};
+        if (signatureCanvas) {
+            const context = signatureCanvas.getContext('2d');
+            let drawing = false;
+            let lastPoint = null;
+            const setupCanvas = () => {
+                const ratio = window.devicePixelRatio || 1;
+                const width = Math.max(signatureCanvas.clientWidth || 600, 280);
+                signatureCanvas.width = Math.round(width * ratio);
+                signatureCanvas.height = Math.round(150 * ratio);
+                context.setTransform(ratio, 0, 0, ratio, 0, 0);
+                context.lineWidth = 2;
+                context.lineCap = 'round';
+                context.lineJoin = 'round';
+                context.strokeStyle = '#17212b';
+            };
+            window.requestAnimationFrame(setupCanvas);
+            const point = (event) => {
+                const rect = signatureCanvas.getBoundingClientRect();
+                return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+            };
+            signatureCanvas.addEventListener('pointerdown', (event) => {
+                event.preventDefault();
+                drawing = true;
+                lastPoint = point(event);
+                signatureCanvas.setPointerCapture?.(event.pointerId);
+            });
+            signatureCanvas.addEventListener('pointermove', (event) => {
+                if (!drawing) return;
+                event.preventDefault();
+                const next = point(event);
+                context.beginPath();
+                context.moveTo(lastPoint.x, lastPoint.y);
+                context.lineTo(next.x, next.y);
+                context.stroke();
+                lastPoint = next;
+            });
+            const finish = (event) => {
+                if (!drawing) return;
+                event.preventDefault();
+                drawing = false;
+                lastPoint = null;
+                signatureValue = signatureCanvas.toDataURL('image/png');
+            };
+            signatureCanvas.addEventListener('pointerup', finish);
+            signatureCanvas.addEventListener('pointerleave', finish);
+            clearSignature = () => {
+                context.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+                signatureValue = '';
+            };
+            $('[data-signature-clear]', root)?.addEventListener('click', clearSignature);
+        }
+
         submit?.addEventListener('click', async (event) => {
             event.preventDefault();
             clearError(errorBox);
             successBox.hidden = true;
+            const name = $('#requester_name')?.value.trim() || '';
+            const email = $('#requester_email')?.value.trim() || '';
+            const phone = $('#requester_phone')?.value.trim() || '';
+            const organization = $('#requester_organization')?.value.trim() || '';
+            const identifier = $('#requester_identifier')?.value.trim() || '';
             const purpose = $('#purpose')?.value.trim() || '';
+            const project = $('#project')?.value.trim() || '';
+            const notes = $('#notes')?.value.trim() || '';
             const acknowledged = $('#responsibility_ack')?.checked;
             const neededBy = $('#needed_by')?.value;
             const returnBy = $('#return_by')?.value;
@@ -495,12 +744,24 @@
                 field?.focus();
                 return undefined;
             };
-            if (!state.lines.length) return fail('Add at least one item to the request.', searchInput || scanInput);
+            if (!state.lines.length) return fail('Add at least one item to the request.', searchInput);
+            if (!name) return fail('Enter your full name.', $('#requester_name'));
+            if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+                return fail('Enter a valid email address.', $('#requester_email'));
+            }
             if (!purpose) return fail('Describe what you will use the items for.', $('#purpose'));
             if (!acknowledged) return fail('Accept the responsibility statement to continue.', $('#responsibility_ack'));
-            if (neededBy && returnBy && returnBy < neededBy) return fail('Choose a return date on or after the pickup date.', $('#return_by'));
+            if (!signatureValue) return fail('Sign the request before sending it.', signatureCanvas);
+            if (neededBy && returnBy && returnBy < neededBy) {
+                return fail('Choose a return date on or after the pickup date.', $('#return_by'));
+            }
 
             const payload = {
+                requester_name: name,
+                requester_email: email,
+                requester_phone: phone,
+                requester_organization: organization,
+                requester_identifier: identifier,
                 lines: state.lines.map((line) => ({
                     part_id: line.part_id,
                     stock_item_id: line.stock_item_id,
@@ -509,28 +770,36 @@
                 purpose,
                 needed_by: neededBy || null,
                 return_by: returnBy || null,
-                notes: $('#notes')?.value.trim() || '',
-                contact: $('#contact')?.value.trim() || '',
-                project: $('#project')?.value.trim() || '',
-                responsibility_ack: Boolean(acknowledged)
+                notes,
+                contact: phone,
+                project,
+                responsibility_ack: Boolean(acknowledged),
+                signature: signatureValue
             };
             setBusy(submit, true, 'Sending…');
             try {
-                const created = await api(L.api.requests, { method: 'POST', body: JSON.stringify(payload) });
+                const created = await api(L.api.publicRequests, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
                 state.lines = [];
                 renderCart();
-                showSuccess(successBox, `Request <strong>${esc(created.reference)}</strong> sent. <a href="${L.urls.requests}">View my requests</a>.`);
+                clearSignature();
+                showSuccess(
+                    successBox,
+                    `Request <strong>${esc(created.reference)}</strong> sent. <a href="${esc(created.track_url)}">Track your request</a>.`
+                );
                 submit.innerHTML = 'Request sent';
                 submit.disabled = true;
+                successBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
             } catch (error) {
                 setBusy(submit, false);
                 showError(errorBox, formatError(error));
             }
         });
 
-        const scanParam = new URLSearchParams(window.location.search).get('scan');
-        if (scanParam) handleScan(scanParam);
         renderCart();
+        loadCatalog();
     }
 
     /* ------------------------------------------------------------------

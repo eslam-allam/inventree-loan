@@ -9,7 +9,7 @@ from importlib import import_module
 from django.urls import path
 
 
-def _function_view(module_name: str, attribute: str):
+def _function_view(module_name: str, attribute: str, *, auth_exempt: bool = False):
     """Return a lazy wrapper around a function-based view."""
 
     def view(request, *args, **kwargs):
@@ -17,10 +17,12 @@ def _function_view(module_name: str, attribute: str):
         return getattr(module, attribute)(request, *args, **kwargs)
 
     view.__name__ = f"lazy_{attribute}"
+    if auth_exempt:
+        view.auth_exempt = True
     return view
 
 
-def _class_view(module_name: str, attribute: str):
+def _class_view(module_name: str, attribute: str, *, auth_exempt: bool = False):
     """Return a lazy wrapper around a class-based view."""
 
     def view(request, *args, **kwargs):
@@ -28,6 +30,8 @@ def _class_view(module_name: str, attribute: str):
         return getattr(module, attribute).as_view()(request, *args, **kwargs)
 
     view.__name__ = f"lazy_{attribute}"
+    if auth_exempt:
+        view.auth_exempt = True
     return view
 
 
@@ -35,15 +39,20 @@ urlpatterns = [
     # Bundled UI assets, served without requiring collectplugins
     path(
         "assets/<str:filename>",
-        _function_view("inventree_loan.views", "asset"),
+        _function_view("inventree_loan.views", "asset", auth_exempt=True),
         name="asset",
     ),
     # Pages
     path("", _function_view("inventree_loan.views", "dashboard"), name="dashboard"),
-    path("request/", _function_view("inventree_loan.views", "request_new"), name="request_new"),
+    path("request/", _function_view("inventree_loan.views", "request_new", auth_exempt=True), name="request_new"),
+    path(
+        "track/<uuid:token>/",
+        _function_view("inventree_loan.views", "public_request_detail", auth_exempt=True),
+        name="public_request_detail",
+    ),
     path(
         "external/",
-        _function_view("inventree_loan.views", "request_new"),
+        _function_view("inventree_loan.views", "request_new", auth_exempt=True),
         name="external",
     ),
     path("requests/", _function_view("inventree_loan.views", "requests_view"), name="requests"),
@@ -68,6 +77,42 @@ urlpatterns = [
     path("history/", _function_view("inventree_loan.views", "history"), name="history"),
     path("staff/", _function_view("inventree_loan.views", "staff"), name="staff"),
     path("setup/", _function_view("inventree_loan.views", "setup"), name="setup"),
+    # Public JSON API (anonymous requesters)
+    path(
+        "api/public/catalog/categories/",
+        _class_view("inventree_loan.api.views", "PublicCatalogCategoriesView", auth_exempt=True),
+        name="api_public_catalog_categories",
+    ),
+    path(
+        "api/public/catalog/",
+        _class_view("inventree_loan.api.views", "PublicCatalogView", auth_exempt=True),
+        name="api_public_catalog",
+    ),
+    path(
+        "api/public/catalog/<int:pk>/",
+        _class_view("inventree_loan.api.views", "PublicPartDetailView", auth_exempt=True),
+        name="api_public_part_detail",
+    ),
+    path(
+        "api/public/part-image/<int:pk>/",
+        _class_view("inventree_loan.api.views", "PublicPartImageView", auth_exempt=True),
+        name="api_public_part_image",
+    ),
+    path(
+        "api/public/scan/",
+        _class_view("inventree_loan.api.views", "PublicScanView", auth_exempt=True),
+        name="api_public_scan",
+    ),
+    path(
+        "api/public/requests/",
+        _class_view("inventree_loan.api.views", "PublicRequestCreateView", auth_exempt=True),
+        name="api_public_requests",
+    ),
+    path(
+        "api/public/requests/<uuid:token>/",
+        _class_view("inventree_loan.api.views", "PublicRequestDetailView", auth_exempt=True),
+        name="api_public_request_detail",
+    ),
     # JSON API
     path(
         "api/catalog/",

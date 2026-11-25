@@ -67,21 +67,34 @@ def manager_users():
     return list(User.objects.filter(is_superuser=True, is_active=True))
 
 
-def send_email(user, subject: str, message: str):
-    """Send an email if the plugin and Django are configured for it."""
-    if not user or not user.email:
-        return
-    if not get_setting("ENABLE_EMAIL", False):
+def send_email_address(email: str, subject: str, message: str):
+    """Send email to an address, even when there is no user account."""
+    email = (email or "").strip()
+    if not email or not get_setting("ENABLE_EMAIL", False):
         return
     from_email = get_setting("EMAIL_FROM", "") or django_settings.DEFAULT_FROM_EMAIL
     try:
-        send_mail(subject, message, from_email, [user.email], fail_silently=True)
+        send_mail(subject, message, from_email, [email], fail_silently=True)
     except Exception:  # pragma: no cover
         pass
 
 
+def send_email(user, subject: str, message: str):
+    """Send an email if the plugin and Django are configured for it."""
+    if not user:
+        return
+    send_email_address(user.email, subject, message)
+
+
 def request_link(request) -> str:
     """Absolute-ish URL for a request detail page."""
+    if request.requester_id is None:
+        try:
+            return reverse(
+                "plugin:loan:public_request_detail", args=[request.public_token]
+            )
+        except Exception:  # pragma: no cover
+            return ""
     try:
         return reverse("plugin:loan:request_detail", args=[request.pk])
     except Exception:  # pragma: no cover
@@ -90,6 +103,14 @@ def request_link(request) -> str:
 
 def loan_link(loan) -> str:
     """Absolute-ish URL for a loan detail page."""
+    if loan.borrower_id is None and loan.request_id:
+        try:
+            return reverse(
+                "plugin:loan:public_request_detail",
+                args=[loan.request.public_token],
+            )
+        except Exception:  # pragma: no cover
+            return ""
     try:
         return reverse("plugin:loan:loan_detail", args=[loan.pk])
     except Exception:  # pragma: no cover
@@ -99,7 +120,7 @@ def loan_link(loan) -> str:
 def notify_request_submitted(request):
     """Notify approvers that a new request needs attention."""
     name = f"New loan request {request.reference}"
-    message = f"{request.requester} requested {request.item_count} item(s)."
+    message = f"{request.requester_display} requested {request.item_count} item(s)."
     link = request_link(request)
     managers = manager_users()
     notify_users(managers, name, message, target=request, link=link)
@@ -113,7 +134,9 @@ def notify_request_decided(request):
     message = request.decision_notes or f"Your request is now {request.get_status_display()}."
     link = request_link(request)
     notify_user(request.requester, name, message, target=request, link=link)
-    send_email(request.requester, name, f"{message}\n\n{link}")
+    send_email_address(
+        request.requester_email_display, name, f"{message}\n\n{link}"
+    )
 
 
 def notify_loan_issued(loan):
@@ -122,7 +145,7 @@ def notify_loan_issued(loan):
     message = f"{loan.item_count} item(s) due {loan.due_at:%Y-%m-%d}."
     link = loan_link(loan)
     notify_user(loan.borrower, name, message, target=loan, link=link)
-    send_email(loan.borrower, name, f"{message}\n\n{link}")
+    send_email_address(loan.borrower_email_display, name, f"{message}\n\n{link}")
 
 
 def notify_loan_returned(loan):
@@ -131,7 +154,7 @@ def notify_loan_returned(loan):
     message = "All items have been returned. Thank you."
     link = loan_link(loan)
     notify_user(loan.borrower, name, message, target=loan, link=link)
-    send_email(loan.borrower, name, f"{message}\n\n{link}")
+    send_email_address(loan.borrower_email_display, name, f"{message}\n\n{link}")
 
 
 def notify_loan_renewed(loan):
@@ -140,7 +163,7 @@ def notify_loan_renewed(loan):
     message = f"The due date is now {loan.due_at:%Y-%m-%d}."
     link = loan_link(loan)
     notify_user(loan.borrower, name, message, target=loan, link=link)
-    send_email(loan.borrower, name, f"{message}\n\n{link}")
+    send_email_address(loan.borrower_email_display, name, f"{message}\n\n{link}")
 
 
 def notify_loan_reminder(loan, overdue: bool = False):
@@ -153,7 +176,7 @@ def notify_loan_reminder(loan, overdue: bool = False):
         message = f"Please return the items by {loan.due_at:%Y-%m-%d}."
     link = loan_link(loan)
     notify_user(loan.borrower, name, message, target=loan, link=link)
-    send_email(loan.borrower, name, f"{message}\n\n{link}")
+    send_email_address(loan.borrower_email_display, name, f"{message}\n\n{link}")
 
 
 def notify_item_lost(loan_item):

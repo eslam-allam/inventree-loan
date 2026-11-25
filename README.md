@@ -7,10 +7,21 @@ a role-aware interface for requesters and loan desk staff.
 
 ## Features
 
-- Users can request parts or specific assets **without** InvenTree stock permissions.
+- A **public request catalogue** that works without an InvenTree account.
+- Browse loanable parts by category or search, open part details, and inspect
+  available stock items before adding them to a request.
+- Anonymous requesters enter their own name, email, phone, organisation and ID,
+  so no InvenTree user account is required.
+- Requesters sign at submission. The loan desk captures a second signature at
+  handout, and a third at return.
 - Approvers can review, approve, and reject requests.
+- The admin console has a **View** action for every request, showing requester
+  details, purpose, dates, requested items, notes and the submitted signature
+  before approval or handout.
 - Loan desk staff can hand out items by scanning barcodes or searching the catalog.
-- Partial quantities are supported: items are split, moved, and merged back safely.
+- Trackable/serialized parts are loaned as whole units and returned in full.
+  Non-trackable parts support partial quantities; split items are moved to the
+  loan location and returned to their original location and status.
 - Items move to a dedicated **On Loan** location and receive an **On Loan** status.
 - While on loan, stock items are excluded from availability and normal allocation flows.
 - Direct edits, moves, quantity changes, allocation, and deletion of loaned items are
@@ -19,8 +30,10 @@ a role-aware interface for requesters and loan desk staff.
   original location and status.
 - Every request, decision, handout, reminder, renewal, loss, and return is recorded
   in an append-only audit timeline.
-- QR codes identify loans; printed receipts include the QR, due date, and signature
-  lines.
+- Every anonymous request gets a secret tracking link showing its status, loan
+  progress, and signatures.
+- QR codes identify loans; printed receipts include the QR, due date, and
+  captured signatures.
 - Barcode scanning supports USB/keyboard scanners and camera scanning where the
   browser exposes `BarcodeDetector`.
 - Optional email notifications; in-app notifications are always available.
@@ -38,6 +51,8 @@ a role-aware interface for requesters and loan desk staff.
   `ENABLE_PLUGINS_INTERFACE` must be enabled
   - `ENABLE_PLUGINS_APP` is required for the plugin's models and migrations.
   - `ENABLE_PLUGINS_INTERFACE` is required for the **Loans** tab and native page.
+- The public request page (`/plugin/loan/request/`) does **not** require an
+  InvenTree account. It must be reachable from the network that will use it.
 - Optional for camera scanning: a browser with `BarcodeDetector` support
 
 > **Upgrading from 1.5.x:** enable `ENABLE_PLUGINS_APP` before restarting. Without
@@ -103,23 +118,27 @@ python manage.py migrate
 The plugin adds a **Loans** tab to the InvenTree navigation bar, a **Loans** card
 to the dashboard widget list, and a **Loan Manager** spotlight action.
 
+- **Request equipment** (`/plugin/loan/request/`) is the public catalogue.
+  It requires no account. Requesters browse by category, search parts, open
+  item details, choose available stock, enter their contact details, sign, and
+  submit. The success message includes a secret tracking link.
+- **Request status** (`/plugin/loan/track/<token>/`) shows the requester the
+  request, loan dates, decisions, and captured signatures through that link.
 - **Loans (navigation)** opens a native InvenTree page at
   `/web/plugin/loan/management`. It is rendered inside the normal InvenTree
   layout, so the header, navigation, theme, and user menu behave exactly like
   the Stock or Parts pages.
 - **Loans (dashboard widget)** provides a requester shortcut and an
   **Open loan desk** button which opens the same native page.
-- Requesters still use the standalone request form at `/plugin/loan/request/`
-  for new requests. That page is intentionally outside the single-page app so
-  it can be linked or embedded on its own.
 - The plugin settings page (Admin Center → Plugins → InvenTree Loan Manager)
   uses the same native console for initial setup.
 
-The native page adapts to the signed-in user's loan role: requesters see their
-own requests and loans, while loan staff additionally see the handout, staff,
-setup, and audit-history tabs. It is built from standard InvenTree React and
-Mantine components, so it follows the instance theme, language, and
-accessibility settings.
+The native console adapts to the signed-in user's loan role: requesters see
+their own requests and loans, while loan staff additionally see the handout,
+staff, setup, and audit-history tabs. The **Requests** tab has a **View**
+button for each request, including anonymous requests, so staff can review the
+requester, purpose, dates, items and signature before approving or handing out.
+Handout and return dialogs require the borrower's signature.
 
 ## Initial setup
 
@@ -175,39 +194,58 @@ also need the normal InvenTree stock change role.
 
 ### Request
 
-1. Open **Loans → New request**.
-2. Search the catalog or scan a specific asset.
-3. Set quantities, pickup date, return date, and purpose.
-4. Accept the responsibility statement and submit.
-5. Approvers receive an in-app notification (and email if enabled).
+1. Open the public page at `/plugin/loan/request/` (no account required).
+2. Browse categories or search, open a part to see its description and available
+   stock items, and add the items you need.
+3. Enter your name, email, phone, organisation and optional ID, plus pickup and
+   return dates and the purpose.
+4. Accept the responsibility statement and sign in the signature box.
+5. Send the request. The confirmation includes a secret tracking link.
+6. Approvers receive an in-app notification (and email if enabled).
 
 ### Approve or reject
 
-Approvers open the Loan Manager console and use the **Requests** tab to
-**Approve** or **Reject**. A decision note can be added and is visible to the
-requester.
+Approvers open the Loan Manager console and use the **Requests** tab. Select
+**View** to see the requester, contact details, purpose, dates, items and
+submitted signature. **Approve** or **Reject**, optionally adding a decision
+note. Anonymous requesters receive the decision at the email address they
+provided, and can follow the request through their tracking link.
 
 ### Hand out
 
 1. Open the **Handout** tab in the Loan Manager console.
-2. Choose an approved request.
-3. Confirm the due date and submit.
-4. Print the receipt or show the loan QR.
+2. Select **View** or **Hand out** on an approved request.
+3. Review the request details and have the borrower sign in the signature box.
+4. Confirm the handout.
+5. Print the receipt or show the loan QR.
 
 The service selects available stock items, moves or splits the requested quantities
 to the On Loan location, applies the On Loan status, and records the original
-location and status.
+location and status. The handout signature is stored on the loan and shown on the
+requester's tracking page and the printed receipt.
 
 ### Return
 
 1. Open the **Loans** tab in the Loan Manager console.
 2. Choose the loan and select **Return**.
 3. Adjust return quantities and select the condition.
-4. Confirm.
+4. Ask the borrower to sign, then confirm.
 
 The item is returned to its original location, the original status is restored, and
-the loan is marked partially returned or returned. The returned stock item remains
-linked to the loan line for audit history.
+the loan is marked partially returned or returned. The return signature is stored
+on the loan. The returned stock item remains linked to the loan line for audit
+history.
+
+### Trackable and non-trackable parts
+
+- **Non-trackable parts** are quantity-tracked. A request can ask for part of a
+  stock item; the plugin splits the item, moves the split quantity to the loan
+  location, and returns it to the original location and status. The returned
+  split remains a separate stock item so the loan line keeps its audit link.
+- **Trackable/serialized assets** are individual stock items with a serial or
+  asset label. The public page lists the available units, and each unit is added
+  as quantity 1. Trackable parts are requested in whole units; serialized items
+  cannot be partially returned.
 
 ### Renew, lose, and overdue
 
@@ -252,7 +290,7 @@ The scanner accepts:
 | On Loan location | — | Stock location used while items are out |
 | On Loan status name | `ON_LOAN` | Internal custom status name |
 | Loanable part category | — | Restrict requests to a category tree |
-| Request group | — | Restrict who may submit requests |
+| Request group | — | Restrict signed-in users on the account pages; public requests remain open |
 | Default loan duration | 14 days | Default pickup-to-return period |
 | Due soon reminder | 2 days | Reminder lead time |
 | Overdue reminder interval | 1 day | Repeat interval for overdue notices |
@@ -262,6 +300,10 @@ The scanner accepts:
 | Allow walk-in checkout | on | Desk staff can create direct loans |
 | Allow renewals / max renewals | on / 1 | Renewal policy |
 | Require responsibility acknowledgement | on | Requester agreement checkbox |
+| Allow public requests | on | Allow requests without an InvenTree account |
+| Require a signature on requests | on | Requester must sign before submitting |
+| Require a signature on handout | on | Borrower must sign when items are issued |
+| Require a signature on return | on | Borrower must sign when items are returned |
 | Require core stock permission | off | Also check InvenTree stock change permission |
 | Lock loaned stock items | on | Block core edits/moves/allocations |
 | Hide borrower details from requesters | on | Privacy for scanned items |
@@ -287,7 +329,7 @@ python manage.py test inventree_loan
 or with pytest-django:
 
 ```bash
-pytest inventree_loan
+python manage.py test inventree_loan
 ```
 
 The tests expect the plugin app to be enabled, as InvenTree's test runner enables
@@ -305,8 +347,8 @@ The built wheel includes templates, static assets, migrations, and the
 
 ## Limitations and notes
 
-- The plugin is targeted at InvenTree 1.5.x. Test against 1.6 before widening
-  `MAX_VERSION`.
+- The plugin targets InvenTree 1.6–1.7. Test against a new major series before
+  widening `MAX_VERSION`.
 - Plugin roles are separate from InvenTree groups by design; see the optional core
   stock permission setting.
 - The custom On Loan status must exist before handout. The setup page and management
@@ -316,5 +358,8 @@ The built wheel includes templates, static assets, migrations, and the
   manually if desired.
 - Camera scanning depends on browser support; USB scanners and manual entry always
   work.
+- The public catalogue intentionally exposes part names, descriptions, stock
+  locations and available quantities. It does not expose pricing, suppliers,
+  borrower details, or other users.
 - Loan history is append-only in the UI. Use the Django admin only for emergency
   maintenance.

@@ -101,9 +101,32 @@ class LoanRequest(LoanBaseModel):
     )
     requester = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="loan_requests",
         verbose_name=_("Requester"),
+    )
+    requester_name = models.CharField(
+        max_length=150, blank=True, verbose_name=_("Requester name")
+    )
+    requester_email = models.EmailField(blank=True, verbose_name=_("Requester email"))
+    requester_phone = models.CharField(
+        max_length=50, blank=True, verbose_name=_("Requester phone")
+    )
+    requester_organization = models.CharField(
+        max_length=255, blank=True, verbose_name=_("Organization / department")
+    )
+    requester_identifier = models.CharField(
+        max_length=100, blank=True, verbose_name=_("Student / employee ID")
+    )
+    signature = models.TextField(blank=True, verbose_name=_("Requester signature"))
+    public_token = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+        verbose_name=_("Public tracking token"),
     )
     status = models.CharField(
         max_length=24,
@@ -155,7 +178,9 @@ class LoanRequest(LoanBaseModel):
         return self.reference or f"Request #{self.pk}"
 
     def save(self, *args, **kwargs):
-        """Assign a human-readable reference after the first save."""
+        """Assign a reference and public tracking token after the first save."""
+        if not self.public_token:
+            self.public_token = uuid.uuid4()
         super().save(*args, **kwargs)
         if not self.reference:
             year = local_today().year
@@ -186,6 +211,29 @@ class LoanRequest(LoanBaseModel):
         """Total requested quantity across all lines."""
         total = self.lines.aggregate(total=models.Sum("quantity"))["total"]
         return total or Decimal(0)
+
+    @property
+    def requester_display(self) -> str:
+        """Name shown for authenticated and anonymous requesters."""
+        if self.requester_name:
+            return self.requester_name
+        if self.requester_id:
+            return str(self.requester)
+        return _("Guest requester")
+
+    @property
+    def requester_email_display(self) -> str:
+        """Email address for the requester, from the profile or public form."""
+        if self.requester_email:
+            return self.requester_email
+        if self.requester_id:
+            return self.requester.email
+        return ""
+
+    @property
+    def requester_phone_display(self) -> str:
+        """Phone number for the requester."""
+        return self.requester_phone or self.contact
 
     @classmethod
     def check_user_permission(cls, user, permission: str) -> bool:
@@ -278,13 +326,24 @@ class Loan(LoanBaseModel):
     )
     borrower = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="loans",
         verbose_name=_("Borrower"),
     )
+    borrower_name = models.CharField(
+        max_length=150, blank=True, verbose_name=_("Borrower name")
+    )
+    borrower_email = models.EmailField(blank=True, verbose_name=_("Borrower email"))
+    borrower_phone = models.CharField(
+        max_length=50, blank=True, verbose_name=_("Borrower phone")
+    )
     issued_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="loans_issued",
         verbose_name=_("Issued by"),
     )
@@ -309,6 +368,18 @@ class Loan(LoanBaseModel):
         verbose_name=_("QR token"),
     )
     notes = models.TextField(blank=True, verbose_name=_("Loan notes"))
+    signature_checkout = models.TextField(
+        blank=True, verbose_name=_("Handout signature")
+    )
+    signature_checkout_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Handout signed at")
+    )
+    signature_return = models.TextField(
+        blank=True, verbose_name=_("Return signature")
+    )
+    signature_return_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Return signed at")
+    )
     renewals = models.PositiveIntegerField(
         default=0, verbose_name=_("Renewal count")
     )
@@ -379,6 +450,37 @@ class Loan(LoanBaseModel):
     def item_count(self) -> int:
         """Number of lines on this loan."""
         return self.items.count()
+
+    @property
+    def borrower_display(self) -> str:
+        """Name shown for authenticated and anonymous borrowers."""
+        if self.borrower_name:
+            return self.borrower_name
+        if self.borrower_id:
+            return str(self.borrower)
+        if self.request_id:
+            return self.request.requester_display
+        return _("Guest borrower")
+
+    @property
+    def borrower_email_display(self) -> str:
+        """Email address for the borrower."""
+        if self.borrower_email:
+            return self.borrower_email
+        if self.borrower_id:
+            return self.borrower.email
+        if self.request_id:
+            return self.request.requester_email_display
+        return ""
+
+    @property
+    def borrower_phone_display(self) -> str:
+        """Phone number for the borrower."""
+        if self.borrower_phone:
+            return self.borrower_phone
+        if self.request_id:
+            return self.request.requester_phone_display
+        return ""
 
     def refresh_status(self, save: bool = True) -> str:
         """Recalculate the loan status from its open items."""
@@ -614,6 +716,7 @@ class LoanEvent(models.Model):
         request: LoanRequest | None = None,
         loan: Loan | None = None,
         actor=None,
+        actor_name: str = "",
         notes: str = "",
         **metadata,
     ) -> LoanEvent:
@@ -623,7 +726,7 @@ class LoanEvent(models.Model):
             loan=loan,
             event_type=event_type,
             actor=actor,
-            actor_name=str(actor)[:150] if actor else "",
+            actor_name=(actor_name or (str(actor) if actor else ""))[:150],
             notes=notes,
             metadata=metadata,
         )

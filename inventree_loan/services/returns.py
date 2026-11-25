@@ -18,6 +18,7 @@ from ..models import (
     ReturnCondition,
 )
 from ..permissions import can_handout
+from ..utils import clean_signature
 from .notifications import notify_item_lost, notify_loan_returned
 from .setup import get_loan_location
 
@@ -51,10 +52,19 @@ def return_item(
     condition: str = ReturnCondition.GOOD,
     notes: str = "",
     location=None,
+    signature: str = "",
 ) -> LoanItem:
     """Return all or part of a loaned item to its original location."""
     if not can_handout(actor):
         raise PermissionDenied("You do not have permission to receive returns")
+
+    from ..config import get_setting
+
+    signature = clean_signature(
+        signature,
+        required=bool(get_setting("REQUIRE_SIGNATURE_ON_RETURN", True)),
+        field="signature",
+    )
 
     item = (
         LoanItem.objects.select_for_update()
@@ -149,16 +159,23 @@ def return_item(
         stock_item=item.stock_item_id,
         quantity=str(quantity),
         condition=condition,
+        signed=bool(signature),
     )
 
     item.loan.refresh_status()
+    if signature:
+        item.loan.signature_return = signature
+        item.loan.signature_return_at = timezone.now()
+        item.loan.save(
+            update_fields=["signature_return", "signature_return_at", "updated"]
+        )
     if item.loan.status == LoanStatus.RETURNED:
         notify_loan_returned(item.loan)
     return item
 
 
 @transaction.atomic
-def return_loan(loan, actor, lines: list[dict]) -> list[LoanItem]:
+def return_loan(loan, actor, lines: list[dict], signature: str = "") -> list[LoanItem]:
     """Return one or more lines on a loan."""
     results = []
     for line in lines:
@@ -179,6 +196,7 @@ def return_loan(loan, actor, lines: list[dict]) -> list[LoanItem]:
                 condition=line.get("condition", ReturnCondition.GOOD),
                 notes=line.get("notes", ""),
                 location=location,
+                signature=signature,
             )
         )
     if not results:

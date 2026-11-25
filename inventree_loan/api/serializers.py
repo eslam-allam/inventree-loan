@@ -18,6 +18,24 @@ class RequestCreateSerializer(serializers.Serializer):
     contact = serializers.CharField(required=False, allow_blank=True, default="")
     project = serializers.CharField(required=False, allow_blank=True, default="")
     responsibility_ack = serializers.BooleanField(required=False, default=False)
+    signature = serializers.CharField(required=False, allow_blank=True, default="")
+    requester_name = serializers.CharField(required=False, allow_blank=True, default="")
+    requester_email = serializers.EmailField(required=False, allow_blank=True, default="")
+    requester_phone = serializers.CharField(required=False, allow_blank=True, default="")
+    requester_organization = serializers.CharField(
+        required=False, allow_blank=True, default=""
+    )
+    requester_identifier = serializers.CharField(
+        required=False, allow_blank=True, default=""
+    )
+
+
+class PublicRequestCreateSerializer(RequestCreateSerializer):
+    """Input for an anonymous public loan request."""
+
+    requester_name = serializers.CharField(max_length=150)
+    requester_email = serializers.EmailField()
+    signature = serializers.CharField()
 
 
 class DecisionSerializer(serializers.Serializer):
@@ -48,6 +66,7 @@ class CheckoutSerializer(serializers.Serializer):
     items = CheckoutLineSerializer(many=True, required=False)
     due_at = serializers.DateTimeField(required=False, allow_null=True)
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+    signature = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate(self, attrs):
         if not attrs.get("request_id"):
@@ -78,6 +97,7 @@ class ReturnSerializer(serializers.Serializer):
     """Return one or more lines."""
 
     lines = ReturnLineSerializer(many=True, required=False)
+    signature = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class RenewSerializer(serializers.Serializer):

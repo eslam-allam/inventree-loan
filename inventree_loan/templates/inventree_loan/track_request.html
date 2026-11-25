@@ -1,0 +1,118 @@
+{% extends base_template %}
+{% load i18n %}
+{% block title %}{{ request_obj.reference }}{% endblock %}
+{% block content %}
+<div class="loan-page track-page">
+    <header class="loan-page-header">
+        <div>
+            <p class="loan-breadcrumb">{% trans "Request status" %}</p>
+            <h1>{{ request_obj.reference }}</h1>
+            <p class="loan-subtitle">
+                {% if request_obj.requester_id %}
+                    {% trans "Submitted by" %} <strong>{{ request_obj.requester_display }}</strong>
+                {% else %}
+                    {% trans "Public request" %}
+                {% endif %}
+                · {{ request_obj.created|date:"M j, Y H:i" }}
+            </p>
+        </div>
+        <div class="loan-page-actions">
+            {% include "inventree_loan/_status_badge.html" with status=request_obj.status label=request_obj.get_status_display %}
+        </div>
+    </header>
+
+    <div class="loan-grid loan-grid-2">
+        <section class="loan-panel">
+            <div class="loan-panel-header">
+                <div>
+                    <h2>{% trans "Requested items" %}</h2>
+                    <p class="loan-muted">{% blocktrans count counter=request_obj.item_count %}{{ counter }} line{% plural %}{{ counter }} lines{% endblocktrans %}</p>
+                </div>
+            </div>
+            <div class="loan-table-wrap">
+                <table class="loan-table">
+                    <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Qty" %}</th><th scope="col">{% trans "Notes" %}</th></tr></thead>
+                    <tbody>
+                    {% for line in request_obj.lines.all %}
+                        <tr>
+                            <td><strong>{{ line.part.name }}</strong>{% if line.part.IPN %}<div class="loan-muted">{{ line.part.IPN }}</div>{% endif %}</td>
+                            <td>{% if line.stock_item %}{{ line.stock_item }}{% else %}<span class="loan-muted">{% trans "Any available" %}</span>{% endif %}</td>
+                            <td>{{ line.quantity|floatformat:"-5" }}</td>
+                            <td class="loan-muted">{{ line.notes|default:"—" }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="loan-panel">
+            <div class="loan-panel-header"><div><h2>{% trans "Request information" %}</h2></div></div>
+            <dl class="loan-details">
+                <dt>{% trans "Name" %}</dt><dd>{{ request_obj.requester_display }}</dd>
+                <dt>{% trans "Email" %}</dt><dd>{{ request_obj.requester_email_display|default:"—" }}</dd>
+                <dt>{% trans "Phone" %}</dt><dd>{{ request_obj.requester_phone_display|default:"—" }}</dd>
+                {% if request_obj.requester_organization %}<dt>{% trans "Organization" %}</dt><dd>{{ request_obj.requester_organization }}</dd>{% endif %}
+                {% if request_obj.requester_identifier %}<dt>{% trans "ID" %}</dt><dd>{{ request_obj.requester_identifier }}</dd>{% endif %}
+                <dt>{% trans "Pickup date" %}</dt><dd>{{ request_obj.needed_by|date:"M j, Y"|default:"—" }}</dd>
+                <dt>{% trans "Requested return" %}</dt><dd>{{ request_obj.return_by|date:"M j, Y"|default:"—" }}</dd>
+                <dt>{% trans "Purpose" %}</dt><dd>{{ request_obj.purpose|default:"—"|linebreaksbr }}</dd>
+                <dt>{% trans "Notes" %}</dt><dd>{{ request_obj.notes|default:"—"|linebreaksbr }}</dd>
+                {% if request_obj.decision_notes %}<dt>{% trans "Decision notes" %}</dt><dd>{{ request_obj.decision_notes|linebreaksbr }}</dd>{% endif %}
+            </dl>
+            {% if request_obj.signature %}
+                <div class="loan-signature-block">
+                    <h3>{% trans "Submitted signature" %}</h3>
+                    <img class="loan-signature" src="{{ request_obj.signature }}" alt="{% trans 'Requester signature' %}">
+                </div>
+            {% endif %}
+        </section>
+    </div>
+
+    {% if loan %}
+        <section class="loan-panel">
+            <div class="loan-panel-header">
+                <div>
+                    <h2>{% trans "Loan" %} {{ loan.reference }}</h2>
+                    <p class="loan-muted">{% trans "Issued" %} {{ loan.issued_at|date:"M j, Y H:i" }}</p>
+                </div>
+                <div>{% include "inventree_loan/_status_badge.html" with status=loan.status label=loan.get_status_display %}</div>
+            </div>
+            <dl class="loan-details">
+                <dt>{% trans "Due" %}</dt><dd>{{ loan.due_at|date:"M j, Y H:i" }}</dd>
+                {% if loan.returned_at %}<dt>{% trans "Returned" %}</dt><dd>{{ loan.returned_at|date:"M j, Y H:i" }}</dd>{% endif %}
+                <dt>{% trans "Handout signature" %}</dt><dd>{% if loan.signature_checkout %}{% trans "Signed" %}{% else %}{% trans "Not signed" %}{% endif %}</dd>
+                <dt>{% trans "Return signature" %}</dt><dd>{% if loan.signature_return %}{% trans "Signed" %}{% else %}{% trans "Not signed" %}{% endif %}</dd>
+            </dl>
+            {% if loan.signature_checkout or loan.signature_return %}
+                <div class="loan-signature-grid">
+                    {% if loan.signature_checkout %}
+                        <div class="loan-signature-block"><h3>{% trans "Handout signature" %}</h3><img class="loan-signature" src="{{ loan.signature_checkout }}" alt="{% trans 'Handout signature' %}"></div>
+                    {% endif %}
+                    {% if loan.signature_return %}
+                        <div class="loan-signature-block"><h3>{% trans "Return signature" %}</h3><img class="loan-signature" src="{{ loan.signature_return }}" alt="{% trans 'Return signature' %}"></div>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </section>
+    {% endif %}
+
+    {% if events %}
+        <section class="loan-panel">
+            <div class="loan-panel-header"><div><h2>{% trans "Timeline" %}</h2></div></div>
+            <ul class="loan-timeline">
+                {% for event in events %}
+                    <li>
+                        <span class="loan-timeline-dot" aria-hidden="true"></span>
+                        <div>
+                            <strong>{{ event.get_event_type_display }}</strong>
+                            {% if event.notes %}<span class="loan-muted"> — {{ event.notes }}</span>{% endif %}
+                            <div class="loan-muted">{{ event.actor_name|default:"System" }} · {{ event.created|date:"M j, Y H:i" }}</div>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        </section>
+    {% endif %}
+</div>
+{% endblock %}

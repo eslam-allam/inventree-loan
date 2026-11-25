@@ -5,12 +5,30 @@ window.LOAN = {
     user: {
         id: {{ request.user.pk|default:"null" }},
         name: "{{ request.user.get_full_name|default:request.user.username|escapejs }}",
+        email: "{{ request.user.email|default:''|escapejs }}",
+        authenticated: {{ is_authenticated|yesno:"true,false" }},
         isManager: {{ is_manager|yesno:"true,false" }},
         isDesk: {{ is_desk|yesno:"true,false" }},
         isAdmin: {{ is_admin|yesno:"true,false" }}
     },
+    publicMode: {{ public_mode|default:False|yesno:"true,false" }},
+    categories: [
+        {% for category in categories %}
+        {
+            pk: {{ category.pk }},
+            name: "{{ category.name|escapejs }}",
+            parent: {{ category.parent|default:"null" }},
+            partCount: {{ category.part_count }}
+        }{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ],
     api: {
         catalog: "{% url 'plugin:loan:api_catalog' %}",
+        categories: "{% url 'plugin:loan:api_public_catalog_categories' %}",
+        publicCatalog: "{% url 'plugin:loan:api_public_catalog' %}",
+        publicPart: "{% url 'plugin:loan:api_public_part_detail' 0 %}",
+        publicRequests: "{% url 'plugin:loan:api_public_requests' %}",
+        publicScan: "{% url 'plugin:loan:api_public_scan' %}",
         requests: "{% url 'plugin:loan:api_requests' %}",
         loans: "{% url 'plugin:loan:api_loans' %}",
         checkout: "{% url 'plugin:loan:api_checkout' %}",

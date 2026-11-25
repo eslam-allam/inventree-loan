@@ -9,11 +9,12 @@ from pathlib import Path
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import FileResponse, Http404
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import http_date
 
 from .config import get_native_management_url, get_setting
+from .models import Loan, LoanRequest
 from .permissions import (
     can_handout,
     can_manage_staff,
@@ -28,6 +29,7 @@ from .selectors import (
     visible_loans,
     visible_requests,
 )
+from .services.requests import catalog_categories
 from .services.setup import is_configured
 from .utils import local_today
 
@@ -41,7 +43,6 @@ def _standard_admin_url() -> str:
     return get_native_management_url()
 
 
-@login_required
 def asset(request, filename):
     """Serve a bundled plugin asset directly from the package.
 
@@ -71,13 +72,16 @@ def asset(request, filename):
 
 def _base_context(request, page: str, **extra) -> dict:
     role = get_user_role(request.user)
+    authenticated = bool(request.user.is_authenticated)
     context = {
         "page": page,
         "loan_role": role,
+        "is_authenticated": authenticated,
         "is_manager": can_view_all(request.user),
         "is_desk": can_handout(request.user),
         "is_admin": can_manage_staff(request.user),
         "can_request": can_request(request.user),
+        "allow_anonymous_requests": bool(get_setting("ALLOW_ANONYMOUS_REQUESTS", True)),
         "setup_configured": is_configured(),
         "base_template": "inventree_loan/base_external.html",
         "loan_duration_days": int(get_setting("LOAN_DURATION_DAYS", 14) or 14),
@@ -85,6 +89,13 @@ def _base_context(request, page: str, **extra) -> dict:
         "allow_direct_checkout": bool(get_setting("ALLOW_DIRECT_CHECKOUT", True)),
         "allow_renewal": bool(get_setting("ALLOW_RENEWAL", True)),
         "max_items": int(get_setting("MAX_ITEMS_PER_REQUEST", 25) or 25),
+        "requester_name": (
+            request.user.get_full_name() or request.user.username
+            if authenticated
+            else ""
+        ),
+        "requester_email": request.user.email if authenticated else "",
+        "requester_phone": "",
     }
     context.update(extra)
     return context
@@ -98,25 +109,61 @@ def dashboard(request):
     return redirect("plugin:loan:request_new")
 
 
-@login_required
 def request_new(request):
-    """Requester-facing request wizard."""
-    if not can_request(request.user):
-        raise PermissionDenied("You do not have permission to request loans")
+    """Public requester form.
+
+    The page intentionally does not require an InvenTree account.  Anonymous
+    requesters provide their own name, email, phone and signature.
+    """
+    if not request.user.is_authenticated and not get_setting(
+        "ALLOW_ANONYMOUS_REQUESTS", True
+    ):
+        raise PermissionDenied("Public loan requests are disabled")
 
     today = local_today()
     default_return = today + timedelta(
         days=int(get_setting("LOAN_DURATION_DAYS", 14) or 14)
     )
+    context = _base_context(
+        request,
+        "request-new",
+        today=today,
+        default_return=default_return,
+        public_mode=not request.user.is_authenticated,
+        categories=catalog_categories(),
+    )
+    # The public form is available to everyone; the old group restriction only
+    # applies to the authenticated account pages.
+    context["can_request"] = True
+    return render(request, "inventree_loan/request_form.html", context)
+
+
+def public_request_detail(request, token):
+    """Show request status and loan progress through a secret tracking token."""
+    loan_request = get_object_or_404(
+        LoanRequest.objects.select_related("requester").prefetch_related(
+            "lines__part", "lines__stock_item"
+        ),
+        public_token=token,
+    )
     return render(
         request,
-        "inventree_loan/request_form.html",
-        _base_context(
-            request,
-            "request-new",
-            today=today,
-            default_return=default_return,
-        ),
+        "inventree_loan/track_request.html",
+        {
+            "page": "track-request",
+            "base_template": "inventree_loan/base_external.html",
+            "request_obj": loan_request,
+            "loan": Loan.objects.filter(request=loan_request).first(),
+            "events": loan_request.events.all()[:100],
+            "is_authenticated": bool(request.user.is_authenticated),
+            "is_manager": can_view_all(request.user),
+            "is_desk": can_handout(request.user),
+            "is_admin": can_manage_staff(request.user),
+            "can_request": True,
+            "allow_anonymous_requests": bool(
+                get_setting("ALLOW_ANONYMOUS_REQUESTS", True)
+            ),
+        },
     )
 
 

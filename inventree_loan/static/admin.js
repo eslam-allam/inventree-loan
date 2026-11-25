@@ -10,7 +10,7 @@ const React = window.React;
 const M = window.MantineCore;
 
 const h = React.createElement;
-const { useCallback, useEffect, useMemo, useState } = React;
+const { useCallback, useEffect, useMemo, useRef, useState } = React;
 
 const STATUS_COLORS = {
     pending: 'yellow',
@@ -96,6 +96,310 @@ function useRequestList(api, reloadKey) {
     return { data, error, loading: data === null && !error };
 }
 
+function SignaturePad({ value, onChange, label = 'Signature', required = false }) {
+    const canvasRef = useRef(null);
+    const drawing = useRef(false);
+    const lastPoint = useRef(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const setup = () => {
+            const ratio = window.devicePixelRatio || 1;
+            const width = Math.max(canvas.clientWidth || 480, 280);
+            const height = 150;
+            canvas.width = Math.round(width * ratio);
+            canvas.height = Math.round(height * ratio);
+            const context = canvas.getContext('2d');
+            context.setTransform(ratio, 0, 0, ratio, 0, 0);
+            context.lineWidth = 2;
+            context.lineCap = 'round';
+            context.lineJoin = 'round';
+            context.strokeStyle = '#17261f';
+            if (value) {
+                const image = new Image();
+                image.onload = () => {
+                    context.clearRect(0, 0, width, height);
+                    context.drawImage(image, 0, 0, width, height);
+                };
+                image.src = value;
+            }
+        };
+        const timer = window.setTimeout(setup, 0);
+        return () => window.clearTimeout(timer);
+    }, [value]);
+
+    const point = (event) => {
+        const rect = canvasRef.current.getBoundingClientRect();
+        return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+
+    const start = (event) => {
+        event.preventDefault();
+        drawing.current = true;
+        lastPoint.current = point(event);
+        canvasRef.current.setPointerCapture?.(event.pointerId);
+    };
+
+    const move = (event) => {
+        if (!drawing.current) return;
+        event.preventDefault();
+        const context = canvasRef.current.getContext('2d');
+        const next = point(event);
+        context.beginPath();
+        context.moveTo(lastPoint.current.x, lastPoint.current.y);
+        context.lineTo(next.x, next.y);
+        context.stroke();
+        lastPoint.current = next;
+    };
+
+    const end = (event) => {
+        if (!drawing.current) return;
+        event.preventDefault();
+        drawing.current = false;
+        lastPoint.current = null;
+        onChange?.(canvasRef.current.toDataURL('image/png'));
+    };
+
+    const clear = () => {
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        onChange?.('');
+    };
+
+    return h(
+        M.Stack,
+        { gap: 4 },
+        h(
+            M.Text,
+            { size: 'sm', fw: 600 },
+            label,
+            required ? h(M.Text, { component: 'span', c: 'red' }, ' *') : null
+        ),
+        h('canvas', {
+            ref: canvasRef,
+            style: {
+                width: '100%',
+                height: 150,
+                border: '1px solid #cbd5cc',
+                borderRadius: 2,
+                background: '#fff',
+                touchAction: 'none',
+                cursor: 'crosshair'
+            },
+            onPointerDown: start,
+            onPointerMove: move,
+            onPointerUp: end,
+            onPointerLeave: end
+        }),
+        h(
+            M.Group,
+            { justify: 'space-between' },
+            h(M.Text, { size: 'xs', c: 'dimmed' }, value ? 'Signature captured' : 'Sign inside the box'),
+            h(M.Button, { size: 'compact-xs', variant: 'default', onClick: clear }, 'Clear')
+        )
+    );
+}
+
+function RequestDetailModal({ context, requestId, onClose, onAction, handoutMode = false, onHandout }) {
+    const api = context.api;
+    const [detail, setDetail] = useState(null);
+    const [error, setError] = useState('');
+    const [signature, setSignature] = useState('');
+    const [signatureError, setSignatureError] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (!requestId) {
+            setDetail(null);
+            setSignature('');
+            setSignatureError('');
+            return;
+        }
+        let active = true;
+        setDetail(null);
+        setError('');
+        api.get(`/plugin/loan/api/requests/${requestId}/`)
+            .then((response) => {
+                if (active) setDetail(response.data);
+            })
+            .catch((err) => {
+                if (active) setError(errorText(err));
+            });
+        return () => {
+            active = false;
+        };
+    }, [api, requestId]);
+
+    const confirmHandout = () => {
+        if (!signature) {
+            setSignatureError('The borrower must sign before the items are handed out.');
+            return;
+        }
+        setSaving(true);
+        setSignatureError('');
+        Promise.resolve(onHandout?.(detail.pk, signature))
+            .catch((err) => setSignatureError(errorText(err)))
+            .finally(() => setSaving(false));
+    };
+
+    return h(
+        M.Modal,
+        {
+            opened: Boolean(requestId),
+            onClose,
+            title: detail ? `Request ${detail.reference}` : 'Request details',
+            size: 'xl',
+            centered: true
+        },
+        h(
+            M.Stack,
+            { gap: 'md' },
+            error ? h(ErrorAlert, { error }) : null,
+            detail
+                ? h(
+                      M.Stack,
+                      { gap: 'sm' },
+                      h(
+                          M.Group,
+                          { justify: 'space-between', align: 'flex-start' },
+                          h(
+                              M.Stack,
+                              { gap: 2 },
+                              h(M.Text, { fw: 700, size: 'lg' }, detail.requester_name || detail.requester),
+                              h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_email || 'No email provided'),
+                              detail.requester_phone
+                                  ? h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_phone)
+                                  : null
+                          ),
+                          h(StatusBadge, { status: detail.status, label: detail.status_display })
+                      ),
+                      detail.requester_organization || detail.requester_identifier
+                          ? h(
+                                M.Text,
+                                { size: 'sm', c: 'dimmed' },
+                                [detail.requester_organization, detail.requester_identifier]
+                                    .filter(Boolean)
+                                    .join(' · ')
+                            )
+                          : null,
+                      h(M.Text, null, detail.purpose || 'No purpose provided.'),
+                      h(
+                          M.Group,
+                          { grow: true },
+                          h(M.Text, { size: 'sm' }, `Pickup: ${formatDate(detail.needed_by)}`),
+                          h(M.Text, { size: 'sm' }, `Return: ${formatDate(detail.return_by)}`),
+                          h(M.Text, { size: 'sm' }, `Created: ${formatDate(detail.created)}`)
+                      ),
+                      detail.notes ? h(M.Text, { size: 'sm', c: 'dimmed' }, detail.notes) : null,
+                      h(
+                          M.Table,
+                          { verticalSpacing: 'xs' },
+                          h(
+                              M.Table.Thead,
+                              null,
+                              h(
+                                  M.Table.Tr,
+                                  null,
+                                  h(M.Table.Th, null, 'Part'),
+                                  h(M.Table.Th, null, 'Asset'),
+                                  h(M.Table.Th, null, 'Qty'),
+                                  h(M.Table.Th, null, 'Notes')
+                              )
+                          ),
+                          h(
+                              M.Table.Tbody,
+                              null,
+                              (detail.lines || []).map((line) =>
+                                  h(
+                                      M.Table.Tr,
+                                      { key: line.pk },
+                                      h(
+                                          M.Table.Td,
+                                          null,
+                                          h(M.Text, { fw: 600 }, line.part_name),
+                                          line.ipn ? h(M.Text, { size: 'xs', c: 'dimmed' }, line.ipn) : null
+                                      ),
+                                      h(M.Table.Td, null, line.stock_item_label || 'Any available'),
+                                      h(M.Table.Td, null, line.quantity),
+                                      h(M.Table.Td, null, line.notes || '—')
+                                  )
+                              )
+                          )
+                      ),
+                      detail.decision_notes
+                          ? h(M.Alert, { color: 'blue', title: 'Decision notes' }, detail.decision_notes)
+                          : null,
+                      detail.signature
+                          ? h(
+                                M.Stack,
+                                { gap: 2 },
+                                h(M.Text, { size: 'sm', fw: 600 }, 'Submitted signature'),
+                                h('img', {
+                                    src: detail.signature,
+                                    alt: 'Requester signature',
+                                    style: {
+                                        maxWidth: 280,
+                                        border: '1px solid #cbd5cc',
+                                        borderRadius: 2,
+                                        background: '#fff'
+                                    }
+                                })
+                            )
+                          : h(M.Text, { size: 'sm', c: 'red' }, 'No request signature on file.'),
+                      handoutMode
+                          ? h(SignaturePad, {
+                                value: signature,
+                                onChange: setSignature,
+                                label: 'Borrower signature',
+                                required: true
+                            })
+                          : null,
+                      signatureError ? h(M.Text, { size: 'sm', c: 'red' }, signatureError) : null,
+                      h(
+                          M.Group,
+                          { justify: 'flex-end' },
+                          h(M.Button, { variant: 'default', onClick: onClose }, 'Close'),
+                          !handoutMode && detail.can_approve
+                              ? h(
+                                    M.Button,
+                                    {
+                                        color: 'green',
+                                        onClick: () => onAction?.({ id: detail.pk, type: 'approve' })
+                                    },
+                                    'Approve'
+                                )
+                              : null,
+                          !handoutMode && detail.can_approve
+                              ? h(
+                                    M.Button,
+                                    {
+                                        color: 'red',
+                                        variant: 'light',
+                                        onClick: () => onAction?.({ id: detail.pk, type: 'reject' })
+                                    },
+                                    'Reject'
+                                )
+                              : null,
+                          handoutMode
+                              ? h(M.Button, { loading: saving, onClick: confirmHandout }, 'Confirm handout')
+                              : detail.can_checkout
+                                ? h(
+                                      M.Button,
+                                      {
+                                          onClick: () => onAction?.({ id: detail.pk, type: 'checkout' })
+                                      },
+                                      'Hand out'
+                                  )
+                                : null
+                      )
+                  )
+                : h(Loading)
+        )
+    );
+}
+
 function RequestsPanel({ context }) {
     const api = context.api;
     const [reloadKey, setReloadKey] = useState(0);
@@ -104,6 +408,8 @@ function RequestsPanel({ context }) {
     const [notes, setNotes] = useState('');
     const [saving, setSaving] = useState(false);
     const [actionError, setActionError] = useState('');
+    const [signature, setSignature] = useState('');
+    const [detailId, setDetailId] = useState(null);
 
     const submitAction = useCallback(() => {
         if (!action) return;
@@ -178,11 +484,20 @@ function RequestsPanel({ context }) {
                                       h(
                                           M.Table.Td,
                                           null,
-                                          request.can_approve
-                                              ? h(
-                                                    M.Group,
-                                                    { gap: 'xs', wrap: 'nowrap' },
-                                                    h(
+                                          h(
+                                              M.Group,
+                                              { gap: 'xs', wrap: 'nowrap' },
+                                              h(
+                                                  M.Button,
+                                                  {
+                                                      size: 'xs',
+                                                      variant: 'default',
+                                                      onClick: () => setDetailId(request.pk)
+                                                  },
+                                                  'View'
+                                              ),
+                                              request.can_approve
+                                                  ? h(
                                                         M.Button,
                                                         {
                                                             size: 'xs',
@@ -194,11 +509,14 @@ function RequestsPanel({ context }) {
                                                                 });
                                                                 setNotes('');
                                                                 setActionError('');
+                                                                setSignature('');
                                                             }
                                                         },
                                                         'Approve'
-                                                    ),
-                                                    h(
+                                                    )
+                                                  : null,
+                                              request.can_approve
+                                                  ? h(
                                                         M.Button,
                                                         {
                                                             size: 'xs',
@@ -211,28 +529,31 @@ function RequestsPanel({ context }) {
                                                                 });
                                                                 setNotes('');
                                                                 setActionError('');
+                                                                setSignature('');
                                                             }
                                                         },
                                                         'Reject'
                                                     )
-                                                )
-                                              : request.status === 'approved' && request.can_checkout
-                                                ? h(
-                                                      M.Button,
-                                                      {
-                                                          size: 'xs',
-                                                          onClick: () => {
-                                                              setAction({
-                                                                  id: request.pk,
-                                                                  type: 'checkout'
-                                                              });
-                                                              setNotes('');
-                                                              setActionError('');
-                                                          }
-                                                      },
-                                                      'Hand out'
-                                                  )
-                                                : h(M.Text, { size: 'sm', c: 'dimmed' }, '—')
+                                                  : null,
+                                              request.status === 'approved' && request.can_checkout
+                                                  ? h(
+                                                        M.Button,
+                                                        {
+                                                            size: 'xs',
+                                                            onClick: () => {
+                                                                setAction({
+                                                                    id: request.pk,
+                                                                    type: 'checkout'
+                                                                });
+                                                                setNotes('');
+                                                                setActionError('');
+                                                                setSignature('');
+                                                            }
+                                                        },
+                                                        'Hand out'
+                                                    )
+                                                  : null
+                                          )
                                       )
                                   )
                               )
@@ -263,6 +584,14 @@ function RequestsPanel({ context }) {
                     value: notes,
                     onChange: (event) => setNotes(event.currentTarget.value)
                 }),
+                action?.type === 'checkout'
+                    ? h(SignaturePad, {
+                          value: signature,
+                          onChange: setSignature,
+                          label: 'Borrower signature',
+                          required: true
+                      })
+                    : null,
                 h(ErrorAlert, { error: actionError }),
                 h(
                     M.Group,
@@ -275,11 +604,16 @@ function RequestsPanel({ context }) {
                             loading: saving,
                             onClick: () => {
                                 if (action?.type === 'checkout') {
+                                    if (!signature) {
+                                        setActionError('The borrower must sign before the items are handed out.');
+                                        return;
+                                    }
                                     setSaving(true);
                                     setActionError('');
                                     api.post('/plugin/loan/api/checkout/', {
                                         request_id: action.id,
-                                        notes
+                                        notes,
+                                        signature
                                     })
                                         .then(() => {
                                             setAction(null);
@@ -297,7 +631,18 @@ function RequestsPanel({ context }) {
                     )
                 )
             )
-        )
+        ),
+        h(RequestDetailModal, {
+            context,
+            requestId: detailId,
+            onClose: () => setDetailId(null),
+            onAction: (nextAction) => {
+                setDetailId(null);
+                setAction(nextAction);
+                setNotes('');
+                setActionError('');
+            }
+        })
     );
 }
 
@@ -418,12 +763,14 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
     const [quantities, setQuantities] = useState({});
     const [conditions, setConditions] = useState({});
     const [notes, setNotes] = useState('');
+    const [signature, setSignature] = useState('');
 
     useEffect(() => {
         if (!loan) {
             setDetail(null);
             setQuantities({});
             setConditions({});
+            setSignature('');
             setError('');
             return;
         }
@@ -469,9 +816,17 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
             setError('Enter at least one return quantity.');
             return;
         }
+        if (!signature) {
+            setError('The borrower must sign before the return is recorded.');
+            return;
+        }
         setSaving(true);
         setError('');
-        api.post(`/plugin/loan/api/loans/${detail.pk}/return/`, { lines, notes })
+        api.post(`/plugin/loan/api/loans/${detail.pk}/return/`, {
+            lines,
+            notes,
+            signature
+        })
             .then(() => onSaved())
             .catch((err) => setError(errorText(err)))
             .finally(() => setSaving(false));
@@ -561,6 +916,12 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
                       )
                   )
                 : h(M.Text, { c: 'dimmed' }, 'All items on this loan have already been returned.'),
+            h(SignaturePad, {
+                value: signature,
+                onChange: setSignature,
+                label: 'Borrower signature',
+                required: true
+            }),
             h(M.Textarea, {
                 label: 'Return notes',
                 minRows: 2,
@@ -584,6 +945,8 @@ function HandoutPanel({ context }) {
     const [busy, setBusy] = useState(null);
     const [result, setResult] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
+    const [viewId, setViewId] = useState(null);
+    const [handoutId, setHandoutId] = useState(null);
 
     useEffect(() => {
         let active = true;
@@ -600,16 +963,23 @@ function HandoutPanel({ context }) {
         };
     }, [api, reloadKey]);
 
-    const handout = (request) => {
-        setBusy(request.pk);
+    const handout = (requestId, signature) => {
+        setBusy(requestId);
         setError('');
         setResult(null);
-        api.post('/plugin/loan/api/checkout/', { request_id: request.pk })
+        return api.post('/plugin/loan/api/checkout/', {
+            request_id: requestId,
+            signature
+        })
             .then((response) => {
                 setResult(response.data);
                 setReloadKey((value) => value + 1);
+                setHandoutId(null);
             })
-            .catch((err) => setError(errorText(err)))
+            .catch((err) => {
+                setError(errorText(err));
+                throw err;
+            })
             .finally(() => setBusy(null));
     };
 
@@ -677,13 +1047,26 @@ function HandoutPanel({ context }) {
                                             M.Table.Td,
                                             null,
                                             h(
-                                                M.Button,
-                                                {
-                                                    size: 'xs',
-                                                    loading: busy === request.pk,
-                                                    onClick: () => handout(request)
-                                                },
-                                                'Hand out'
+                                                M.Group,
+                                                { gap: 'xs', wrap: 'nowrap' },
+                                                h(
+                                                    M.Button,
+                                                    {
+                                                        size: 'xs',
+                                                        variant: 'default',
+                                                        onClick: () => setViewId(request.pk)
+                                                    },
+                                                    'View'
+                                                ),
+                                                h(
+                                                    M.Button,
+                                                    {
+                                                        size: 'xs',
+                                                        loading: busy === request.pk,
+                                                        onClick: () => setHandoutId(request.pk)
+                                                    },
+                                                    'Hand out'
+                                                )
                                             )
                                         )
                                     )
@@ -692,7 +1075,25 @@ function HandoutPanel({ context }) {
                         )
                     )
                 )
-              : null
+              : null,
+        h(RequestDetailModal, {
+            context,
+            requestId: viewId,
+            onClose: () => setViewId(null),
+            onAction: (nextAction) => {
+                setViewId(null);
+                if (nextAction.type === 'checkout') {
+                    setHandoutId(nextAction.id);
+                }
+            }
+        }),
+        h(RequestDetailModal, {
+            context,
+            requestId: handoutId,
+            handoutMode: true,
+            onClose: () => setHandoutId(null),
+            onHandout: handout
+        })
     );
 }
 

@@ -13,10 +13,13 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from ..config import get_setting
@@ -48,8 +51,10 @@ from ..services.checkout import checkout_direct, checkout_request
 from ..services.requests import (
     approve_request,
     cancel_request,
+    catalog_categories,
     catalog_parts,
     create_request,
+    part_detail,
     reject_request,
 )
 from ..services.returns import mark_lost, renew_loan, return_loan
@@ -63,6 +68,7 @@ from .serializers import (
     CheckoutSerializer,
     DecisionSerializer,
     LostSerializer,
+    PublicRequestCreateSerializer,
     RenewSerializer,
     RequestCreateSerializer,
     ReturnSerializer,
@@ -97,8 +103,20 @@ def _request_data(request: LoanRequest, user) -> dict:
         "reference": request.reference,
         "status": request.status,
         "status_display": request.get_status_display(),
-        "requester": str(request.requester),
+        "requester": request.requester_display,
         "requester_id": request.requester_id,
+        "requester_name": request.requester_display,
+        "requester_email": request.requester_email_display,
+        "requester_phone": request.requester_phone_display,
+        "requester_organization": request.requester_organization,
+        "requester_identifier": request.requester_identifier,
+        "signature": request.signature,
+        "public_token": str(request.public_token),
+        "track_url": (
+            reverse("plugin:loan:public_request_detail", args=[request.public_token])
+            if request.requester_id is None
+            else ""
+        ),
         "purpose": request.purpose,
         "needed_by": _iso(request.needed_by),
         "return_by": _iso(request.return_by),
@@ -141,12 +159,19 @@ def _loan_data(loan: Loan, user, include_events: bool = False) -> dict:
         "reference": loan.reference,
         "status": loan.status,
         "status_display": loan.get_status_display(),
-        "borrower": str(loan.borrower),
+        "borrower": loan.borrower_display,
         "borrower_id": loan.borrower_id,
-        "issued_by": str(loan.issued_by),
+        "borrower_name": loan.borrower_display,
+        "borrower_email": loan.borrower_email_display,
+        "borrower_phone": loan.borrower_phone_display,
+        "issued_by": str(loan.issued_by) if loan.issued_by else "",
         "issued_at": _iso(loan.issued_at),
         "due_at": _iso(loan.due_at),
         "returned_at": _iso(loan.returned_at),
+        "signature_checkout": loan.signature_checkout,
+        "signature_checkout_at": _iso(loan.signature_checkout_at),
+        "signature_return": loan.signature_return,
+        "signature_return_at": _iso(loan.signature_return_at),
         "is_overdue": loan.is_overdue,
         "days_overdue": loan.days_overdue,
         "renewals": loan.renewals,
@@ -193,10 +218,223 @@ def _loan_data(loan: Loan, user, include_events: bool = False) -> dict:
     return data
 
 
+def _public_request_data(loan_request: LoanRequest) -> dict:
+    """Return the safe subset of request data exposed through a tracking token."""
+    loan = Loan.objects.filter(request=loan_request).first()
+    return {
+        "reference": loan_request.reference,
+        "status": loan_request.status,
+        "status_display": loan_request.get_status_display(),
+        "requester_name": loan_request.requester_display,
+        "requester_email": loan_request.requester_email_display,
+        "purpose": loan_request.purpose,
+        "needed_by": _iso(loan_request.needed_by),
+        "return_by": _iso(loan_request.return_by),
+        "project": loan_request.project,
+        "notes": loan_request.notes,
+        "decision_notes": loan_request.decision_notes,
+        "created": _iso(loan_request.created),
+        "has_signature": bool(loan_request.signature),
+        "track_url": reverse(
+            "plugin:loan:public_request_detail", args=[loan_request.public_token]
+        ),
+        "lines": [
+            {
+                "pk": line.pk,
+                "part_name": line.part.name,
+                "ipn": line.part.IPN or "",
+                "stock_item_label": str(line.stock_item) if line.stock_item else "",
+                "quantity": _num(line.quantity),
+                "notes": line.notes,
+            }
+            for line in loan_request.lines.all()
+        ],
+        "loan": (
+            {
+                "reference": loan.reference,
+                "status": loan.status,
+                "status_display": loan.get_status_display(),
+                "due_at": _iso(loan.due_at),
+                "returned_at": _iso(loan.returned_at),
+                "has_checkout_signature": bool(loan.signature_checkout),
+                "has_return_signature": bool(loan.signature_return),
+            }
+            if loan
+            else None
+        ),
+    }
+
+
 class LoanAPIView(APIView):
     """Base API view with session/DRF authentication."""
 
     permission_classes = [IsAuthenticated]
+
+
+class PublicCatalogCategoriesView(APIView):
+    """Anonymous category browser for the public request page."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request):
+        return Response({"results": catalog_categories()})
+
+
+class PublicCatalogView(APIView):
+    """Anonymous part catalog for the public request page."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request):
+        search = request.GET.get("search", "").strip()
+        category_id = request.GET.get("category")
+        try:
+            category_id = int(category_id) if category_id else None
+        except (TypeError, ValueError):
+            category_id = None
+        limit = int(request.GET.get("limit", get_setting("CATALOG_PAGE_SIZE", 20) or 20))
+        return Response({
+            "results": catalog_parts(
+                search,
+                limit=min(max(limit, 1), 100),
+                category_id=category_id,
+            )
+        })
+
+
+class PublicPartDetailView(APIView):
+    """Anonymous part detail used by the public catalogue."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request, pk):
+        data = part_detail(pk)
+        if data is None:
+            raise Http404
+        return Response(data)
+
+
+class PublicPartImageView(APIView):
+    """Serve a part image without requiring an InvenTree session."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request, pk):
+        import mimetypes
+        from pathlib import Path
+
+        from django.http import FileResponse
+
+        from part.models import Part
+
+        from ..config import get_loanable_category
+
+        part = get_object_or_404(Part, pk=pk, active=True, virtual=False)
+        base = get_loanable_category()
+        if base and (
+            not part.category
+            or not (
+                part.category.pathstring == base.pathstring
+                or part.category.pathstring.startswith(f"{base.pathstring}/")
+            )
+        ):
+            raise Http404
+        try:
+            path = Path(part.image.path)
+        except Exception:
+            raise Http404
+        if not path.is_file():
+            raise Http404
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        response = FileResponse(path.open("rb"), content_type=content_type)
+        response["Cache-Control"] = "private, max-age=3600"
+        return response
+
+
+class PublicScanView(APIView):
+    """Resolve a barcode for the public catalogue without exposing loan data."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def post(self, request):
+        serializer = ScanSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = resolve_barcode(None, serializer.validated_data["barcode"])
+        if result.get("type") == "loan":
+            return Response(
+                {
+                    "success": False,
+                    "error": "That barcode belongs to a loan, not an item.",
+                }
+            )
+        return Response(result)
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class PublicRequestCreateView(APIView):
+    """Create a loan request without requiring an InvenTree account."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [AnonRateThrottle]
+
+    def post(self, request):
+        if not get_setting("ALLOW_ANONYMOUS_REQUESTS", True):
+            raise PermissionDenied("Public loan requests are disabled")
+        serializer = PublicRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            loan_request = create_request(
+                None,
+                data["lines"],
+                purpose=data.get("purpose", ""),
+                needed_by=data.get("needed_by"),
+                return_by=data.get("return_by"),
+                notes=data.get("notes", ""),
+                contact=data.get("contact", ""),
+                project=data.get("project", ""),
+                responsibility_ack=data.get("responsibility_ack", False),
+                requester_name=data.get("requester_name", ""),
+                requester_email=data.get("requester_email", ""),
+                requester_phone=data.get("requester_phone", ""),
+                requester_organization=data.get("requester_organization", ""),
+                requester_identifier=data.get("requester_identifier", ""),
+                signature=data.get("signature", ""),
+                allow_anonymous=True,
+                require_signature=True,
+            )
+        except DjangoValidationError as exc:
+            raise ValidationError(_drf_error(exc)) from None
+        return Response(
+            _public_request_data(loan_request), status=status.HTTP_201_CREATED
+        )
+
+
+class PublicRequestDetailView(APIView):
+    """Track a request through its secret public token."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request, token):
+        loan_request = get_object_or_404(
+            LoanRequest.objects.select_related("requester")
+            .prefetch_related("lines__part", "lines__stock_item"),
+            public_token=token,
+        )
+        return Response(_public_request_data(loan_request))
 
 
 class CatalogView(LoanAPIView):
@@ -235,6 +473,12 @@ class RequestListCreateView(LoanAPIView):
                 contact=data.get("contact", ""),
                 project=data.get("project", ""),
                 responsibility_ack=data.get("responsibility_ack", False),
+                requester_name=data.get("requester_name", ""),
+                requester_email=data.get("requester_email", ""),
+                requester_phone=data.get("requester_phone", ""),
+                requester_organization=data.get("requester_organization", ""),
+                requester_identifier=data.get("requester_identifier", ""),
+                signature=data.get("signature", ""),
             )
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
@@ -345,6 +589,7 @@ class CheckoutView(LoanAPIView):
                     due_at=data.get("due_at"),
                     notes=data.get("notes", ""),
                     allow_pending=not get_setting("REQUIRE_APPROVAL", True),
+                    signature=data.get("signature", ""),
                 )
             else:
                 borrower = get_object_or_404(
@@ -356,6 +601,7 @@ class CheckoutView(LoanAPIView):
                     data.get("items", []),
                     due_at=data.get("due_at"),
                     notes=data.get("notes", ""),
+                    signature=data.get("signature", ""),
                 )
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
@@ -377,7 +623,12 @@ class LoanReturnView(LoanAPIView):
                 if item.is_open
             ]
         try:
-            return_loan(loan, request.user, lines)
+            return_loan(
+                loan,
+                request.user,
+                lines,
+                signature=serializer.validated_data.get("signature", ""),
+            )
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
         return Response(_loan_data(loan_with_items(request.user, pk), request.user, include_events=True))
@@ -707,7 +958,7 @@ class ExportRequestsView(LoanAPIView):
         for item in visible_requests(request.user)[:5000]:
             writer.writerow([
                 _csv_safe(item.reference),
-                _csv_safe(item.requester),
+                _csv_safe(item.requester_display),
                 _csv_safe(item.get_status_display()),
                 _csv_safe(item.purpose),
                 _csv_safe(item.needed_by),
@@ -735,7 +986,7 @@ class ExportLoansView(LoanAPIView):
         for loan in visible_loans(request.user)[:5000]:
             writer.writerow([
                 _csv_safe(loan.reference),
-                _csv_safe(loan.borrower),
+                _csv_safe(loan.borrower_display),
                 _csv_safe(loan.get_status_display()),
                 _csv_safe(loan.issued_at.isoformat() if loan.issued_at else ""),
                 _csv_safe(loan.due_at.isoformat() if loan.due_at else ""),

@@ -10,6 +10,8 @@ from part.models import Part, PartCategory
 from stock.models import StockItem, StockLocation
 from stock.status_codes import StockStatus
 
+TEST_SIGNATURE = "data:image/png;base64,AAAA"
+
 from inventree_loan.models import (
     Loan,
     LoanItem,
@@ -77,7 +79,7 @@ class LoanCheckoutServiceTests(InvenTreeTestCase):
         return_location.return_value = self.loan_location
         request_location.return_value = self.loan_location
 
-        loan = checkout_request(self.request, self.desk_user)
+        loan = checkout_request(self.request, self.desk_user, signature=TEST_SIGNATURE)
         self.assertEqual(loan.status, LoanStatus.ACTIVE)
         self.assertTrue(loan.reference.startswith("LOAN-"))
         self.assertEqual(loan.item_count, 1)
@@ -98,13 +100,13 @@ class LoanCheckoutServiceTests(InvenTreeTestCase):
         self.request.refresh_from_db()
         self.assertEqual(self.request.status, LoanRequestStatus.FULFILLED)
 
-        return_item(loan_item, self.desk_user, quantity=Decimal("1"))
+        return_item(loan_item, self.desk_user, quantity=Decimal("1"), signature=TEST_SIGNATURE)
         loan.refresh_from_db()
         self.assertEqual(loan.status, LoanStatus.PARTIALLY_RETURNED)
         loan_item.refresh_from_db()
         self.assertEqual(loan_item.returned_quantity, Decimal("1"))
 
-        return_item(loan_item, self.desk_user, quantity=Decimal("1"))
+        return_item(loan_item, self.desk_user, quantity=Decimal("1"), signature=TEST_SIGNATURE)
         loan.refresh_from_db()
         loan_item.refresh_from_db()
         self.assertEqual(loan.status, LoanStatus.RETURNED)
@@ -131,12 +133,73 @@ class LoanCheckoutServiceTests(InvenTreeTestCase):
         line.save()
 
         with self.assertRaises(ValidationError):
-            checkout_request(self.request, self.desk_user)
+            checkout_request(self.request, self.desk_user, signature=TEST_SIGNATURE)
 
         self.assertFalse(Loan.objects.filter(request=self.request).exists())
         self.stock_item.refresh_from_db()
         self.assertEqual(self.stock_item.quantity, Decimal("5"))
         self.assertEqual(self.stock_item.location_id, self.location.pk)
+
+    @patch("inventree_loan.services.requests._loan_location")
+    @patch("inventree_loan.services.checkout.get_loan_location")
+    @patch("inventree_loan.services.checkout.get_on_loan_status_key")
+    @patch("inventree_loan.services.returns.get_loan_location")
+    def test_serialized_item_is_loaned_as_one_unit(
+        self, return_location, status_key, checkout_location, request_location
+    ):
+        status_key.return_value = StockStatus.QUARANTINED.value
+        checkout_location.return_value = self.loan_location
+        return_location.return_value = self.loan_location
+        request_location.return_value = self.loan_location
+
+        part = Part.objects.create(
+            name="Serialized Loan Part", category=self.category, trackable=True
+        )
+        serial_item = StockItem.objects.create(
+            part=part,
+            location=self.location,
+            quantity=Decimal("1"),
+            serial="SN-LOAN-001",
+            status=StockStatus.OK.value,
+        )
+        request = LoanRequest.objects.create(
+            requester=self.user,
+            status=LoanRequestStatus.APPROVED,
+            purpose="Serialized item test",
+            responsibility_ack=True,
+        )
+        LoanRequestLine.objects.create(
+            request=request,
+            part=part,
+            stock_item=serial_item,
+            quantity=Decimal("1"),
+        )
+
+        loan = checkout_request(request, self.desk_user, signature=TEST_SIGNATURE)
+        loan_item = loan.items.get()
+        self.assertEqual(loan_item.quantity, Decimal("1"))
+        self.assertEqual(loan_item.stock_item.serial, "SN-LOAN-001")
+
+        serial_item.refresh_from_db()
+        self.assertEqual(serial_item.location_id, self.loan_location.pk)
+
+        with self.assertRaises(ValidationError):
+            return_item(
+                loan_item,
+                self.desk_user,
+                quantity=Decimal("0.5"),
+                signature=TEST_SIGNATURE,
+            )
+
+        return_item(
+            loan_item,
+            self.desk_user,
+            quantity=Decimal("1"),
+            signature=TEST_SIGNATURE,
+        )
+        serial_item.refresh_from_db()
+        self.assertEqual(serial_item.location_id, self.location.pk)
+        self.assertEqual(serial_item.serial, "SN-LOAN-001")
 
     def test_returned_quantity_cannot_exceed_quantity(self):
         item = LoanItem(

@@ -568,8 +568,9 @@ body.loan-body {
 .loan-receipt .loan-table th,
 .loan-receipt .loan-table td { border-color: #e2e8f0; }
 .loan-receipt-notes { margin-top: 22px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
-.loan-receipt-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 54px; }
+.loan-receipt-signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 54px; }
 .loan-receipt-signatures div { border-top: 1px solid #94a3b8; padding-top: 8px; font-size: 12px; color: #64748b; }
+.loan-receipt-signatures .loan-signature { display: block; max-width: 100%; max-height: 80px; margin-top: 6px; background: #fff; }
 .loan-receipt-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 30px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; font-family: var(--loan-mono); }
 
 @media (max-width: 1100px) {
