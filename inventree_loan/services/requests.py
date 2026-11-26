@@ -666,6 +666,7 @@ def create_request(
     allow_anonymous: bool = False,
     require_signature: bool = True,
     purpose_required: bool = True,
+    custom_fields: dict | None = None,
 ) -> LoanRequest:
     """Create a loan request with validated lines.
 
@@ -721,6 +722,10 @@ def create_request(
                     )
                 }
             )
+    from .custom_fields import normalize_custom_fields
+
+    custom_fields = normalize_custom_fields(custom_fields)
+
     if user is not None:
         _check_active_loan_limit(user)
     cleaned = _validate_lines(lines)
@@ -741,6 +746,7 @@ def create_request(
         contact=(contact or "").strip(),
         project=(project or "").strip(),
         responsibility_ack=responsibility_ack,
+        custom_fields=custom_fields,
     )
 
     for line in cleaned:

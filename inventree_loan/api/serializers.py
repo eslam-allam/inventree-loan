@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 
 from rest_framework import serializers
 
-from ..models import LoanStaffRole, ReturnCondition
+from ..models import (
+    LoanCustomFieldType,
+    LoanRequestCustomField,
+    LoanStaffRole,
+    ReturnCondition,
+)
 
 
 class RequestCreateSerializer(serializers.Serializer):
@@ -40,6 +46,7 @@ class PublicRequestCreateSerializer(RequestCreateSerializer):
     signature = serializers.CharField(
         required=False, allow_blank=True, default=""
     )
+    custom_fields = serializers.JSONField(required=False, default=dict)
 
     def validate(self, attrs):
         """Enforce the configurable public form field requirements."""
@@ -82,6 +89,64 @@ class PublicRequestCreateSerializer(RequestCreateSerializer):
                     "Quantity must be a whole number"
                 )
         return lines
+
+
+class CustomFieldSerializer(serializers.ModelSerializer):
+    """Create or update a custom public-form field."""
+
+    field_type_display = serializers.CharField(
+        source="get_field_type_display", read_only=True
+    )
+
+    class Meta:
+        model = LoanRequestCustomField
+        fields = [
+            "pk",
+            "key",
+            "label",
+            "field_type",
+            "field_type_display",
+            "help_text",
+            "placeholder",
+            "required",
+            "active",
+            "sort_order",
+            "options",
+        ]
+
+    def validate_key(self, value):
+        value = (value or "").strip().lower()
+        if self.instance and value and value != self.instance.key:
+            raise serializers.ValidationError(
+                "The field key cannot be changed after creation."
+            )
+        if value and not re.fullmatch(r"[a-z][a-z0-9_]*", value):
+            raise serializers.ValidationError(
+                "Use lowercase letters, numbers and underscores."
+            )
+        return value
+
+    def validate_options(self, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Options must be a list.")
+        return [str(option).strip() for option in value if str(option).strip()]
+
+    def validate(self, attrs):
+        field_type = attrs.get(
+            "field_type", getattr(self.instance, "field_type", LoanCustomFieldType.TEXT)
+        )
+        options = attrs.get(
+            "options", getattr(self.instance, "options", []) or []
+        )
+        if field_type == LoanCustomFieldType.SELECT and not options:
+            raise serializers.ValidationError(
+                {"options": "Add at least one dropdown option."}
+            )
+        if field_type != LoanCustomFieldType.SELECT:
+            attrs["options"] = []
+        return attrs
 
 
 class DecisionSerializer(serializers.Serializer):

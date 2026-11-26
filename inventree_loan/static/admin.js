@@ -535,6 +535,21 @@ function RequestDetailModal({ context, requestId, onClose, onAction, handoutMode
                           h(M.Text, { size: 'sm' }, `Created: ${formatDate(detail.created)}`)
                       ),
                       detail.notes ? h(M.Text, { size: 'sm', c: 'dimmed' }, detail.notes) : null,
+                      detail.custom_fields?.length
+                          ? h(
+                                M.Stack,
+                                { gap: 2 },
+                                h(M.Text, { size: 'xs', c: 'dimmed', tt: 'uppercase', fw: 700 }, 'Additional details'),
+                                ...detail.custom_fields.map((field) =>
+                                    h(
+                                        M.Group,
+                                        { key: field.key, justify: 'space-between', wrap: 'nowrap' },
+                                        h(M.Text, { size: 'sm', c: 'dimmed' }, field.label),
+                                        h(M.Text, { size: 'sm', fw: 500, ta: 'right' }, field.display || '—')
+                                    )
+                                )
+                            )
+                          : null,
                       h(
                           M.Table,
                           { verticalSpacing: 'xs' },
@@ -1007,6 +1022,38 @@ function RequestDetailPage({ context, requestId }) {
                                   M.Text,
                                   { size: 'xs', c: 'dimmed', maw: 180 },
                                   'Attach the label to the box and keep the return sheet inside.'
+                              )
+                          )
+                      )
+                  )
+              )
+            : null,
+        detail.custom_fields?.length
+            ? h(
+                  M.Paper,
+                  { withBorder: true, p: 'md' },
+                  h(
+                      M.Stack,
+                      { gap: 'xs' },
+                      h(M.Title, { order: 4 }, 'Additional details'),
+                      ...detail.custom_fields.map((field) =>
+                          h(
+                              M.Group,
+                              {
+                                  justify: 'space-between',
+                                  align: 'flex-start',
+                                  wrap: 'nowrap',
+                                  key: field.key
+                              },
+                              h(
+                                  M.Text,
+                                  { size: 'sm', c: 'dimmed', style: { flex: '0 0 40%' } },
+                                  field.label
+                              ),
+                              h(
+                                  M.Text,
+                                  { size: 'sm', fw: 500, ta: 'right' },
+                                  field.display || '—'
                               )
                           )
                       )
@@ -3385,6 +3432,425 @@ function HistoryPanel({ context }) {
     );
 }
 
+const CUSTOM_FIELD_TYPES = [
+    { value: 'text', label: 'Short text' },
+    { value: 'textarea', label: 'Long text' },
+    { value: 'number', label: 'Number' },
+    { value: 'email', label: 'Email' },
+    { value: 'phone', label: 'Phone' },
+    { value: 'date', label: 'Date' },
+    { value: 'checkbox', label: 'Checkbox' },
+    { value: 'select', label: 'Dropdown' }
+];
+
+function PublicFormPanel({ context }) {
+    const api = context.api;
+    const [fields, setFields] = useState(null);
+    const [error, setError] = useState('');
+    const [reloadKey, setReloadKey] = useState(0);
+    const [modalOpen, setModalOpen] = useState(false);
+    const [editing, setEditing] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [formError, setFormError] = useState('');
+    const [form, setForm] = useState({
+        label: '',
+        key: '',
+        field_type: 'text',
+        help_text: '',
+        placeholder: '',
+        required: false,
+        active: true,
+        options_text: ''
+    });
+
+    useEffect(() => {
+        let active = true;
+        setError('');
+        api.get('/plugin/loan/api/custom-fields/')
+            .then((response) => {
+                if (active) setFields(response.data?.results || []);
+            })
+            .catch((err) => {
+                if (active) setError(errorText(err));
+            });
+        return () => {
+            active = false;
+        };
+    }, [api, reloadKey]);
+
+    const openNew = () => {
+        setEditing(null);
+        setFormError('');
+        setForm({
+            label: '',
+            key: '',
+            field_type: 'text',
+            help_text: '',
+            placeholder: '',
+            required: false,
+            active: true,
+            options_text: ''
+        });
+        setModalOpen(true);
+    };
+
+    const openEdit = (field) => {
+        setEditing(field);
+        setFormError('');
+        setForm({
+            label: field.label,
+            key: field.key,
+            field_type: field.field_type,
+            help_text: field.help_text || '',
+            placeholder: field.placeholder || '',
+            required: Boolean(field.required),
+            active: Boolean(field.active),
+            options_text: (field.options || []).join('\n')
+        });
+        setModalOpen(true);
+    };
+
+    const save = () => {
+        if (!form.label.trim()) {
+            setFormError('Enter a field label.');
+            return;
+        }
+        setSaving(true);
+        setFormError('');
+        const options =
+            form.field_type === 'select'
+                ? form.options_text
+                      .split('\n')
+                      .map((option) => option.trim())
+                      .filter(Boolean)
+                : [];
+        if (form.field_type === 'select' && !options.length) {
+            setSaving(false);
+            setFormError('Add at least one dropdown option.');
+            return;
+        }
+        const payload = {
+            label: form.label.trim(),
+            field_type: form.field_type,
+            help_text: form.help_text.trim(),
+            placeholder: form.placeholder.trim(),
+            required: Boolean(form.required),
+            active: Boolean(form.active),
+            options
+        };
+        if (!editing) {
+            payload.key = form.key.trim();
+            payload.sort_order = fields?.length || 0;
+        }
+        const promise = editing
+            ? api.patch(`/plugin/loan/api/custom-fields/${editing.pk}/`, payload)
+            : api.post('/plugin/loan/api/custom-fields/', payload);
+        promise
+            .then(() => {
+                setModalOpen(false);
+                setReloadKey((value) => value + 1);
+            })
+            .catch((err) => setFormError(errorText(err)))
+            .finally(() => setSaving(false));
+    };
+
+    const setActive = (field, active) => {
+        setError('');
+        api.patch(`/plugin/loan/api/custom-fields/${field.pk}/`, { active })
+            .then(() => setReloadKey((value) => value + 1))
+            .catch((err) => setError(errorText(err)));
+    };
+
+    const move = (field, direction) => {
+        const ordered = [...(fields || [])].sort(
+            (a, b) => a.sort_order - b.sort_order || a.pk - b.pk
+        );
+        const index = ordered.findIndex((item) => item.pk === field.pk);
+        const target = index + direction;
+        if (target < 0 || target >= ordered.length) return;
+        [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+        setError('');
+        Promise.all(
+            ordered.map((item, order) =>
+                api.patch(`/plugin/loan/api/custom-fields/${item.pk}/`, {
+                    sort_order: order
+                })
+            )
+        )
+            .then(() => setReloadKey((value) => value + 1))
+            .catch((err) => setError(errorText(err)));
+    };
+
+    const orderedFields = [...(fields || [])].sort(
+        (a, b) => a.sort_order - b.sort_order || a.pk - b.pk
+    );
+
+    return h(
+        M.Stack,
+        { gap: 'md' },
+        h(
+            M.Group,
+            { justify: 'space-between', align: 'center', wrap: 'wrap' },
+            h(
+                M.Stack,
+                { gap: 2 },
+                h(M.Title, { order: 4 }, 'Public form'),
+                h(
+                    M.Text,
+                    { size: 'sm', c: 'dimmed' },
+                    'Add extra questions to the public request form. Core fields and signature settings are managed separately.'
+                )
+            ),
+            h(M.Button, { onClick: openNew }, 'Add field')
+        ),
+        h(ErrorAlert, { error }),
+        fields === null
+            ? h(Loading)
+            : orderedFields.length === 0
+              ? h(EmptyState, {
+                    label: 'No custom public form fields yet. Add one to ask for extra information.'
+                })
+              : h(
+                    TableShell,
+                    { loading: false },
+                    h(
+                        M.Table,
+                        { highlightOnHover: true, verticalSpacing: 'sm', horizontalSpacing: 'md' },
+                        h(
+                            M.Table.Thead,
+                            null,
+                            h(
+                                M.Table.Tr,
+                                null,
+                                h(M.Table.Th, null, 'Order'),
+                                h(M.Table.Th, null, 'Label'),
+                                h(M.Table.Th, null, 'Key'),
+                                h(M.Table.Th, null, 'Type'),
+                                h(M.Table.Th, null, 'Required'),
+                                h(M.Table.Th, null, 'Status'),
+                                h(M.Table.Th, null, 'Actions')
+                            )
+                        ),
+                        h(
+                            M.Table.Tbody,
+                            null,
+                            orderedFields.map((field, index) =>
+                                h(
+                                    M.Table.Tr,
+                                    { key: field.pk },
+                                    h(M.Table.Td, null, index + 1),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(M.Text, { size: 'sm', fw: 500 }, field.label),
+                                            field.help_text
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      field.help_text
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(M.Table.Td, null, h(M.Code, null, field.key)),
+                                    h(M.Table.Td, null, field.field_type_display),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        field.required
+                                            ? h(
+                                                  M.Badge,
+                                                  { color: 'blue', variant: 'light', size: 'sm' },
+                                                  'Required'
+                                              )
+                                            : h(M.Text, { size: 'xs', c: 'dimmed' }, 'Optional')
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Badge,
+                                            {
+                                                color: field.active ? 'green' : 'gray',
+                                                variant: 'light',
+                                                size: 'sm'
+                                            },
+                                            field.active ? 'Active' : 'Archived'
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Group,
+                                            { gap: 4, wrap: 'nowrap' },
+                                            h(
+                                                M.Button,
+                                                {
+                                                    size: 'compact-xs',
+                                                    variant: 'default',
+                                                    onClick: () => openEdit(field)
+                                                },
+                                                'Edit'
+                                            ),
+                                            h(
+                                                M.Button,
+                                                {
+                                                    size: 'compact-xs',
+                                                    variant: 'subtle',
+                                                    color: 'gray',
+                                                    disabled: index === 0,
+                                                    onClick: () => move(field, -1),
+                                                    'aria-label': 'Move up'
+                                                },
+                                                '↑'
+                                            ),
+                                            h(
+                                                M.Button,
+                                                {
+                                                    size: 'compact-xs',
+                                                    variant: 'subtle',
+                                                    color: 'gray',
+                                                    disabled: index === orderedFields.length - 1,
+                                                    onClick: () => move(field, 1),
+                                                    'aria-label': 'Move down'
+                                                },
+                                                '↓'
+                                            ),
+                                            h(
+                                                M.Button,
+                                                {
+                                                    size: 'compact-xs',
+                                                    variant: 'light',
+                                                    color: field.active ? 'red' : 'green',
+                                                    onClick: () => setActive(field, !field.active)
+                                                },
+                                                field.active ? 'Archive' : 'Restore'
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+        h(
+            M.Modal,
+            {
+                opened: modalOpen,
+                onClose: () => setModalOpen(false),
+                title: editing ? `Edit ${editing.label}` : 'Add public form field',
+                size: 'lg',
+                centered: true
+            },
+            h(
+                M.Stack,
+                { gap: 'sm' },
+                h(M.TextInput, {
+                    label: 'Label',
+                    value: form.label,
+                    onChange: (event) =>
+                        setForm((current) => ({
+                            ...current,
+                            label: event.currentTarget.value
+                        })),
+                    required: true
+                }),
+                h(M.TextInput, {
+                    label: 'Field key',
+                    description:
+                        'Lowercase letters, numbers and underscores. Leave blank to generate from the label. Cannot be changed later.',
+                    value: form.key,
+                    disabled: Boolean(editing),
+                    onChange: (event) =>
+                        setForm((current) => ({
+                            ...current,
+                            key: event.currentTarget.value
+                        }))
+                }),
+                h(M.Select, {
+                    label: 'Field type',
+                    data: CUSTOM_FIELD_TYPES,
+                    value: form.field_type,
+                    allowDeselect: false,
+                    onChange: (value) =>
+                        setForm((current) => ({
+                            ...current,
+                            field_type: value || 'text'
+                        }))
+                }),
+                h(M.TextInput, {
+                    label: 'Placeholder',
+                    value: form.placeholder,
+                    onChange: (event) =>
+                        setForm((current) => ({
+                            ...current,
+                            placeholder: event.currentTarget.value
+                        }))
+                }),
+                h(M.TextInput, {
+                    label: 'Help text',
+                    value: form.help_text,
+                    onChange: (event) =>
+                        setForm((current) => ({
+                            ...current,
+                            help_text: event.currentTarget.value
+                        }))
+                }),
+                form.field_type === 'select'
+                    ? h(M.Textarea, {
+                          label: 'Dropdown options',
+                          description: 'One option per line.',
+                          minRows: 4,
+                          value: form.options_text,
+                          onChange: (event) =>
+                              setForm((current) => ({
+                                  ...current,
+                                  options_text: event.currentTarget.value
+                              }))
+                      })
+                    : null,
+                h(
+                    M.Group,
+                    { gap: 'lg' },
+                    h(M.Switch, {
+                        label: 'Required',
+                        checked: Boolean(form.required),
+                        onChange: (event) =>
+                            setForm((current) => ({
+                                ...current,
+                                required: event.currentTarget.checked
+                            }))
+                    }),
+                    h(M.Switch, {
+                        label: 'Active',
+                        checked: Boolean(form.active),
+                        onChange: (event) =>
+                            setForm((current) => ({
+                                ...current,
+                                active: event.currentTarget.checked
+                            }))
+                    })
+                ),
+                h(ErrorAlert, { error: formError }),
+                h(
+                    M.Group,
+                    { justify: 'flex-end' },
+                    h(
+                        M.Button,
+                        { variant: 'default', onClick: () => setModalOpen(false) },
+                        'Cancel'
+                    ),
+                    h(M.Button, { loading: saving, onClick: save }, editing ? 'Save' : 'Add field')
+                )
+            )
+        )
+    );
+}
+
 function AdminConsole({ context }) {
     const api = context.api;
     const [tab, setTab] = useState('requests');
@@ -3556,6 +4022,7 @@ function AdminConsole({ context }) {
     if (canHandout) tabs.push({ value: 'handout', label: 'Handout' });
     if (canManage) {
         tabs.push({ value: 'staff', label: 'Staff' });
+        tabs.push({ value: 'public-form', label: 'Public form' });
         tabs.push({ value: 'setup', label: 'Setup' });
     }
     if (isManager) tabs.push({ value: 'history', label: 'History' });
@@ -3669,6 +4136,13 @@ function AdminConsole({ context }) {
                 : null,
             canManage
                 ? h(M.Tabs.Panel, { value: 'staff', pt: 'md' }, h(StaffPanel, { context }))
+                : null,
+            canManage
+                ? h(
+                      M.Tabs.Panel,
+                      { value: 'public-form', pt: 'md' },
+                      h(PublicFormPanel, { context })
+                  )
                 : null,
             canManage
                 ? h(M.Tabs.Panel, { value: 'setup', pt: 'md' }, h(SetupPanel, { context }))

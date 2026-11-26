@@ -36,6 +36,7 @@ from .selectors import (
     visible_loans,
     visible_requests,
 )
+from .services.custom_fields import custom_field_values, public_custom_fields
 from .services.barcode import (
     generate_qr_svg_payload,
     pickup_payload,
@@ -146,6 +147,7 @@ def _render_request_new(request):
         categories=catalog_categories(),
         catalog_total=catalog_part_count(),
         public_fields=get_public_field_config(),
+        custom_fields=public_custom_fields(),
     )
     # The public form is available to everyone; the old group restriction only
     # applies to the authenticated account pages.
@@ -216,6 +218,7 @@ def public_request_detail(request, token):
             "request_obj": loan_request,
             "loan": Loan.objects.filter(request=loan_request).first(),
             "events": loan_request.events.all()[:100],
+            "custom_fields": custom_field_values(loan_request),
             "is_authenticated": bool(request.user.is_authenticated),
             "is_manager": can_view_all(request.user),
             "is_desk": can_handout(request.user),
@@ -242,6 +245,7 @@ def public_request_receipt(request, token):
         {
             "request_obj": loan_request,
             "loan": Loan.objects.filter(request=loan_request).first(),
+            "custom_fields": custom_field_values(loan_request),
             "qr_url": reverse("plugin:loan:public_request_qr", args=[token]),
         },
     )

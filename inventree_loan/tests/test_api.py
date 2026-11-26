@@ -27,6 +27,7 @@ from inventree_loan.models import (
     Loan,
     LoanItem,
     LoanRequest,
+    LoanRequestCustomField,
     LoanRequestLine,
     LoanRequestStatus,
     LoanStaff,
@@ -462,6 +463,101 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
             "/plugin/loan/api/loans/?search=API%20Loan%20Part"
         )
         self.assertEqual(response.data["total"], 1)
+
+    def test_public_custom_field_is_rendered_and_stored(self):
+        LoanRequestCustomField.objects.create(
+            key="cost_center",
+            label="Cost center",
+            field_type="text",
+            required=True,
+        )
+        page = self.client.get("/plugin/loan/request/")
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'data-custom-field="cost_center"')
+        self.assertContains(page, "Cost center")
+
+        base_payload = {
+            "requester_name": "Anon",
+            "requester_email": "anon@example.com",
+            "purpose": "Custom field test",
+            "responsibility_ack": True,
+            "signature": TEST_SIGNATURE,
+            "lines": [{"part_id": self.part.pk, "quantity": 1}],
+        }
+        missing = self.client.post(
+            "/plugin/loan/api/public/requests/", base_payload, format="json"
+        )
+        self.assertEqual(missing.status_code, 400)
+        self.assertIn("custom_fields", missing.data)
+
+        created = self.client.post(
+            "/plugin/loan/api/public/requests/",
+            {**base_payload, "custom_fields": {"cost_center": "CC-42"}},
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201)
+        loan_request = LoanRequest.objects.get(reference=created.data["reference"])
+        self.assertEqual(loan_request.custom_fields, {"cost_center": "CC-42"})
+
+        detail = self.client.get(
+            f"/plugin/loan/api/public/requests/{loan_request.public_token}/"
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.data["custom_fields"][0]["label"], "Cost center")
+        self.assertEqual(detail.data["custom_fields"][0]["display"], "CC-42")
+
+        receipt = self.client.get(
+            f"/plugin/loan/track/{loan_request.public_token}/receipt/"
+        )
+        self.assertEqual(receipt.status_code, 200)
+        self.assertContains(receipt, "CC-42")
+
+    def test_custom_field_crud_requires_admin(self):
+        admin_user = get_user_model().objects.create_user(
+            username="field-admin", password="field-admin"
+        )
+        LoanStaff.objects.create(user=admin_user, role=LoanStaffRole.ADMIN)
+        self.client.force_authenticate(user=admin_user)
+        response = self.client.post(
+            "/plugin/loan/api/custom-fields/",
+            {
+                "label": "Supervisor",
+                "field_type": "select",
+                "required": True,
+                "options": ["Alice", "Bob"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        field_id = response.data["pk"]
+        self.assertTrue(response.data["key"].startswith("supervisor"))
+
+        response = self.client.patch(
+            f"/plugin/loan/api/custom-fields/{field_id}/",
+            {"label": "Approving supervisor", "options": ["Alice", "Bob", "Cara"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["label"], "Approving supervisor")
+
+        response = self.client.delete(
+            f"/plugin/loan/api/custom-fields/{field_id}/"
+        )
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(LoanRequestCustomField.objects.get(pk=field_id).active)
+
+    def test_custom_fields_are_exported_to_csv(self):
+        LoanRequestCustomField.objects.create(
+            key="cost_center", label="Cost center", field_type="text"
+        )
+        self.request.custom_fields = {"cost_center": "CC-99"}
+        self.request.save(update_fields=["custom_fields"])
+        self.client.force_authenticate(user=self.approver)
+        response = self.client.get("/plugin/loan/api/export/requests.csv")
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Cost center", content)
+        self.assertIn("CC-99", content)
 
     def test_catalog_category_counts_include_children(self):
         child = PartCategory.objects.create(

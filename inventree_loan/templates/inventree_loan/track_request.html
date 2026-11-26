@@ -60,6 +60,9 @@
                 <dt>{% trans "Purpose" %}</dt><dd>{{ request_obj.purpose|default:"—"|linebreaksbr }}</dd>
                 <dt>{% trans "Notes" %}</dt><dd>{{ request_obj.notes|default:"—"|linebreaksbr }}</dd>
                 {% if request_obj.decision_notes %}<dt>{% trans "Decision notes" %}</dt><dd>{{ request_obj.decision_notes|linebreaksbr }}</dd>{% endif %}
+                {% for field in custom_fields %}
+                    <dt>{{ field.label }}</dt><dd>{{ field.display|default:"—" }}</dd>
+                {% endfor %}
             </dl>
             {% if request_obj.signature %}
                 <div class="loan-signature-block">

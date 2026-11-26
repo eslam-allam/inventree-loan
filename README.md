@@ -44,8 +44,13 @@ a role-aware interface for requesters and loan desk staff.
 - The internal console has a context-aware **Scan** action: scan a pickup box,
   request, loan, stock item or part and it offers the relevant handout, return or
   detail action.
-- The public request path and the visibility/required state of public form fields
-  are configurable from plugin settings.
+- The public request path and the visibility/required state of core public form
+  fields are configurable from plugin settings.
+- Administrators can add **arbitrary custom fields** to the public form from a
+  **Public form** tab, with text, long text, number, email, phone, date,
+  checkbox and dropdown types, required/optional state, help text and ordering.
+  Values appear on the request page, printable receipt, public tracking page and
+  CSV export.
 - Optional email notifications for submitted, approved/rejected, ready for
   pickup, handout, partial return and returned events; in-app notifications are
   always available.
@@ -166,6 +171,12 @@ to the dashboard widget list, and a **Loan Manager** spotlight action.
   **Required** from plugin settings. Name and email remain required for tracking
   and notifications. Signature and responsibility acknowledgement remain
   controlled by their existing toggles.
+- **Custom public form fields**: administrators can add any number of extra
+  fields in the **Public form** tab. Support text, long text, number, email,
+  phone, date, checkbox and dropdown fields, including help text, placeholders,
+  required state and display order. Archived fields keep their historical values
+  on existing requests. Submitted values are shown on the request page, request
+  receipt, public tracking page and in a dedicated column in the request CSV.
 
 The native console adapts to the signed-in user's loan role: requesters see
 their own requests and loans, while loan staff additionally see the handout,
@@ -375,7 +386,8 @@ The scanner accepts:
 | Request group | — | Restrict signed-in users on the account pages; public requests remain open |
 | Default loan duration | 14 days | Default pickup-to-return period |
 | Public request path | `request` | Public form URL segment under `/plugin/loan/` |
-| Public form fields | mixed | Hidden / optional / required per field |
+| Public form fields | mixed | Hidden / optional / required per core field |
+| Custom form fields | none | Add arbitrary fields in the Public form tab |
 | Due soon reminder | 2 days | Reminder lead time |
 | Overdue reminder interval | 1 day | Repeat interval for overdue notices |
 | Max active loans per user | 0 | 0 means unlimited |

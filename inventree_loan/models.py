@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from decimal import Decimal
 
@@ -24,6 +25,19 @@ class LoanRequestStatus(models.TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
     FULFILLED = "fulfilled", _("Fulfilled")
     PARTIALLY_FULFILLED = "partially_fulfilled", _("Partially fulfilled")
+
+
+class LoanCustomFieldType(models.TextChoices):
+    """Supported custom public-form field types."""
+
+    TEXT = "text", _("Short text")
+    TEXTAREA = "textarea", _("Long text")
+    NUMBER = "number", _("Number")
+    EMAIL = "email", _("Email")
+    PHONE = "phone", _("Phone")
+    DATE = "date", _("Date")
+    CHECKBOX = "checkbox", _("Checkbox")
+    SELECT = "select", _("Dropdown")
 
 
 class LoanPickupStatus(models.TextChoices):
@@ -176,6 +190,9 @@ class LoanRequest(LoanBaseModel):
         null=True, blank=True, verbose_name=_("Decided at")
     )
     decision_notes = models.TextField(blank=True, verbose_name=_("Decision notes"))
+    custom_fields = models.JSONField(
+        default=dict, blank=True, verbose_name=_("Custom form fields")
+    )
 
     class Meta:
         ordering = ["-created"]
@@ -338,6 +355,86 @@ class LoanPickup(LoanBaseModel):
             year = local_today().year
             self.reference = f"{self.REFERENCE_PREFIX}-{year}-{self.pk:05d}"
             type(self).objects.filter(pk=self.pk).update(reference=self.reference)
+
+
+class LoanRequestCustomField(LoanBaseModel):
+    """Definition of an administrator-defined public request field."""
+
+    key = models.CharField(
+        max_length=64,
+        unique=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Field key"),
+    )
+    label = models.CharField(max_length=150, verbose_name=_("Label"))
+    field_type = models.CharField(
+        max_length=16,
+        choices=LoanCustomFieldType.choices,
+        default=LoanCustomFieldType.TEXT,
+        verbose_name=_("Field type"),
+    )
+    help_text = models.CharField(
+        max_length=255, blank=True, verbose_name=_("Help text")
+    )
+    placeholder = models.CharField(
+        max_length=150, blank=True, verbose_name=_("Placeholder")
+    )
+    required = models.BooleanField(default=False, verbose_name=_("Required"))
+    active = models.BooleanField(default=True, verbose_name=_("Active"))
+    sort_order = models.PositiveIntegerField(default=0, verbose_name=_("Order"))
+    options = models.JSONField(default=list, blank=True, verbose_name=_("Options"))
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        verbose_name = _("Public form field")
+        verbose_name_plural = _("Public form fields")
+
+    def __str__(self) -> str:
+        return self.label or self.key
+
+    def clean(self):
+        """Validate the immutable key and dropdown options."""
+        super().clean()
+        key = (self.key or "").strip().lower()
+        if key and not re.fullmatch(r"[a-z][a-z0-9_]*", key):
+            raise ValidationError(
+                {"key": _("Use lowercase letters, numbers and underscores")}
+            )
+        options = self.options
+        if self.field_type == LoanCustomFieldType.SELECT:
+            if not isinstance(options, list) or not any(
+                str(option).strip() for option in options
+            ):
+                raise ValidationError(
+                    {"options": _("Add at least one dropdown option")}
+                )
+        elif options:
+            self.options = []
+
+    def save(self, *args, **kwargs):
+        """Generate a unique key from the label when none is supplied."""
+        from django.utils.text import slugify
+
+        if not self.key:
+            base = slugify(self.label).replace("-", "_")[:50] or "field"
+            if not re.match(r"[a-z]", base):
+                base = f"field_{base}"[:50]
+            key = base
+            index = 2
+            while type(self).objects.filter(key=key).exclude(pk=self.pk).exists():
+                key = f"{base}_{index}"
+                index += 1
+            self.key = key
+        else:
+            self.key = self.key.strip().lower()
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", self.key or ""):
+            raise ValidationError(
+                {"key": _("Use lowercase letters, numbers and underscores")}
+            )
+        if isinstance(self.options, list):
+            self.options = [str(option).strip() for option in self.options if str(option).strip()]
+        super().save(*args, **kwargs)
 
 
 class LoanRequestLine(models.Model):

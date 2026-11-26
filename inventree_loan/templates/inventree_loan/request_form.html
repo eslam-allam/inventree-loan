@@ -191,6 +191,40 @@
                 </div>
                 {% endif %}
                 {% endif %}
+                {% if custom_fields %}
+                <h3 class="it-form-section">{% trans "Additional information" %}</h3>
+                <div class="it-form-grid">
+                    {% for field in custom_fields %}
+                        {% if field.field_type == 'textarea' %}
+                        <div class="loan-field" style="grid-column: 1 / -1">
+                            <label class="loan-label" for="custom_{{ field.key }}">{{ field.label }}{% if field.required %} <span class="loan-required">*</span>{% endif %}</label>
+                            <textarea class="loan-textarea" id="custom_{{ field.key }}" name="custom_{{ field.key }}" rows="3" data-custom-field="{{ field.key }}"{% if field.required %} required{% endif %} placeholder="{{ field.placeholder }}"></textarea>
+                            {% if field.help_text %}<p class="loan-muted loan-small">{{ field.help_text }}</p>{% endif %}
+                        </div>
+                        {% elif field.field_type == 'checkbox' %}
+                        <label class="loan-check">
+                            <input type="checkbox" id="custom_{{ field.key }}" name="custom_{{ field.key }}" data-custom-field="{{ field.key }}"{% if field.required %} required{% endif %}>
+                            <span>{{ field.label }}{% if field.required %} <span class="loan-required">*</span>{% endif %}{% if field.help_text %}<br><span class="loan-muted loan-small">{{ field.help_text }}</span>{% endif %}</span>
+                        </label>
+                        {% elif field.field_type == 'select' %}
+                        <div class="loan-field">
+                            <label class="loan-label" for="custom_{{ field.key }}">{{ field.label }}{% if field.required %} <span class="loan-required">*</span>{% endif %}</label>
+                            <select class="loan-select" id="custom_{{ field.key }}" name="custom_{{ field.key }}" data-custom-field="{{ field.key }}"{% if field.required %} required{% endif %}>
+                                <option value="">{% trans "Choose…" %}</option>
+                                {% for option in field.options %}<option value="{{ option }}">{{ option }}</option>{% endfor %}
+                            </select>
+                            {% if field.help_text %}<p class="loan-muted loan-small">{{ field.help_text }}</p>{% endif %}
+                        </div>
+                        {% else %}
+                        <div class="loan-field">
+                            <label class="loan-label" for="custom_{{ field.key }}">{{ field.label }}{% if field.required %} <span class="loan-required">*</span>{% endif %}</label>
+                            <input class="loan-input" id="custom_{{ field.key }}" name="custom_{{ field.key }}" type="{% if field.field_type == 'number' %}number{% elif field.field_type == 'email' %}email{% elif field.field_type == 'phone' %}tel{% elif field.field_type == 'date' %}date{% else %}text{% endif %}"{% if field.field_type == 'number' %} step="any"{% endif %} data-custom-field="{{ field.key }}"{% if field.required %} required{% endif %} placeholder="{{ field.placeholder }}">
+                            {% if field.help_text %}<p class="loan-muted loan-small">{{ field.help_text }}</p>{% endif %}
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
                 <label class="loan-check">
                     <input type="checkbox" id="responsibility_ack" name="responsibility_ack"{% if require_responsibility_ack %} required{% endif %}>
                     <span>{% trans "I agree to return the items by the due date and accept responsibility for loss or damage." %}{% if require_responsibility_ack %} <span class="loan-required">*</span>{% endif %}</span>

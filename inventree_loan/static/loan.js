@@ -876,6 +876,14 @@
             if (purposeField?.required && !purpose) {
                 return fail('Describe what you will use the items for.', purposeField);
             }
+            const fieldLabel = (field) =>
+                field
+                    .closest('.loan-field')
+                    ?.querySelector('label')
+                    ?.textContent?.replace('*', '')
+                    .trim() ||
+                field.closest('label')?.textContent?.replace('*', '').trim() ||
+                'This field';
             const handledRequired = new Set([
                 $('#requester_name'),
                 $('#requester_email'),
@@ -884,12 +892,22 @@
             for (const field of $$('#request-details [required]', root)) {
                 if (field.type === 'checkbox' || handledRequired.has(field)) continue;
                 if (!String(field.value || '').trim()) {
-                    const label = field
-                        .closest('.loan-field')
-                        ?.querySelector('label')
-                        ?.textContent?.replace('*', '')
-                        .trim();
-                    return fail(`${label || 'This field'} is required.`, field);
+                    return fail(`${fieldLabel(field)} is required.`, field);
+                }
+            }
+            for (const field of $$('[data-custom-field]', root)) {
+                if (field.type === 'checkbox') {
+                    if (field.required && !field.checked) {
+                        return fail(`${fieldLabel(field)} is required.`, field);
+                    }
+                    continue;
+                }
+                const value = String(field.value || '').trim();
+                if (field.type === 'email' && value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) {
+                    return fail(`${fieldLabel(field)} must be a valid email address.`, field);
+                }
+                if (field.type === 'number' && value && !Number.isFinite(Number(value))) {
+                    return fail(`${fieldLabel(field)} must be a number.`, field);
                 }
             }
             if (requireAck && !acknowledged) {
@@ -902,6 +920,11 @@
                 return fail('Choose a return date on or after the pickup date.', $('#return_by'));
             }
 
+            const customFields = {};
+            $$('[data-custom-field]', root).forEach((field) => {
+                customFields[field.dataset.customField] =
+                    field.type === 'checkbox' ? field.checked : field.value.trim();
+            });
             const payload = {
                 requester_name: name,
                 requester_email: email,
@@ -919,7 +942,8 @@
                 contact: phone,
                 project,
                 responsibility_ack: Boolean(acknowledged),
-                signature: signatureValue
+                signature: signatureValue,
+                custom_fields: customFields
             };
             setBusy(submit, true, 'Sending…');
             try {

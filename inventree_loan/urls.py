@@ -253,6 +253,16 @@ urlpatterns = [
         name="api_staff",
     ),
     path(
+        "api/custom-fields/",
+        _class_view("inventree_loan.api.views", "CustomFieldListView"),
+        name="api_custom_fields",
+    ),
+    path(
+        "api/custom-fields/<int:pk>/",
+        _class_view("inventree_loan.api.views", "CustomFieldDetailView"),
+        name="api_custom_field_detail",
+    ),
+    path(
         "api/staff/<int:pk>/",
         _class_view("inventree_loan.api.views", "StaffDetailView"),
         name="api_staff_detail",

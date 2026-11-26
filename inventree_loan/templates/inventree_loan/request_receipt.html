@@ -56,6 +56,22 @@
         </table>
     </section>
 
+    {% if custom_fields %}
+    <section>
+        <h2>{% trans "Additional information" %}</h2>
+        <table class="loan-table">
+            <tbody>
+            {% for field in custom_fields %}
+                <tr>
+                    <th scope="row">{{ field.label }}</th>
+                    <td>{{ field.display|default:"—" }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% endif %}
+
     <section class="loan-receipt-notes">
         <h2>{% trans "Purpose" %}</h2>
         <p>{{ request_obj.purpose|default:"—" }}</p>

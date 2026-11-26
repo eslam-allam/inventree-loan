@@ -8,6 +8,7 @@ from .models import (
     LoanItem,
     LoanPickup,
     LoanRequest,
+    LoanRequestCustomField,
     LoanRequestLine,
     LoanStaff,
 )
@@ -88,6 +89,13 @@ class LoanEventAdmin(admin.ModelAdmin):
         return False
 
 
+class LoanRequestCustomFieldAdmin(admin.ModelAdmin):
+    list_display = ("label", "key", "field_type", "required", "active", "sort_order")
+    list_filter = ("field_type", "required", "active")
+    search_fields = ("label", "key")
+    readonly_fields = ("created", "updated")
+
+
 class LoanPickupAdmin(admin.ModelAdmin):
     list_display = ("reference", "name", "request", "status", "ready_at", "collected_at")
     list_filter = ("status",)
@@ -107,5 +115,6 @@ _register(LoanRequest, LoanRequestAdmin)
 _register(Loan, LoanAdmin)
 _register(LoanItem, LoanItemAdmin)
 _register(LoanEvent, LoanEventAdmin)
+_register(LoanRequestCustomField, LoanRequestCustomFieldAdmin)
 _register(LoanPickup, LoanPickupAdmin)
 _register(LoanStaff, LoanStaffAdmin)

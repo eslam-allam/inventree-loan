@@ -47,6 +47,7 @@ from ..models import (
     LoanPickup,
     LoanRequest,
     LoanRequestAllocation,
+    LoanRequestCustomField,
     LoanRequestLine,
     LoanStaff,
     LoanStaffRole,
@@ -86,6 +87,7 @@ from ..services.requests import (
     reject_request,
 )
 from ..services.pickups import mark_ready_for_pickup
+from ..services.custom_fields import custom_field_values
 from ..services.returns import mark_lost, renew_loan, return_loan
 from ..services.setup import (
     ensure_setup,
@@ -95,6 +97,7 @@ from ..services.setup import (
 )
 from .serializers import (
     CheckoutSerializer,
+    CustomFieldSerializer,
     DecisionSerializer,
     LostSerializer,
     PublicRequestCreateSerializer,
@@ -621,6 +624,7 @@ def _request_data(request: LoanRequest, user) -> dict:
         "contact": request.contact,
         "project": request.project,
         "decision_notes": request.decision_notes,
+        "custom_fields": custom_field_values(request),
         "decided_by": str(request.decided_by) if request.decided_by else "",
         "decided_at": _iso(request.decided_at),
         "created": _iso(request.created),
@@ -775,6 +779,7 @@ def _public_request_data(loan_request: LoanRequest) -> dict:
         "project": loan_request.project,
         "notes": loan_request.notes,
         "decision_notes": loan_request.decision_notes,
+        "custom_fields": custom_field_values(loan_request),
         "created": _iso(loan_request.created),
         "has_signature": bool(loan_request.signature),
         "public_token": str(loan_request.public_token),
@@ -981,6 +986,7 @@ class PublicRequestCreateView(APIView):
                 require_signature=True,
                 purpose_required=get_public_field_config().get("purpose")
                 == "required",
+                custom_fields=data.get("custom_fields", {}),
             )
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
@@ -1698,6 +1704,59 @@ class StaffDetailView(LoanAPIView):
         return Response(status=204)
 
 
+class CustomFieldListView(LoanAPIView):
+    """List or create public form field definitions."""
+
+    def get(self, request):
+        if not can_manage_staff(request.user):
+            raise PermissionDenied(
+                "You do not have permission to manage public form fields"
+            )
+        fields = LoanRequestCustomField.objects.all()
+        return Response(
+            {"results": CustomFieldSerializer(fields, many=True).data}
+        )
+
+    def post(self, request):
+        if not can_manage_staff(request.user):
+            raise PermissionDenied(
+                "You do not have permission to manage public form fields"
+            )
+        serializer = CustomFieldSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        field = serializer.save()
+        return Response(
+            CustomFieldSerializer(field).data, status=status.HTTP_201_CREATED
+        )
+
+
+class CustomFieldDetailView(LoanAPIView):
+    """Update or archive a public form field."""
+
+    def patch(self, request, pk):
+        if not can_manage_staff(request.user):
+            raise PermissionDenied(
+                "You do not have permission to manage public form fields"
+            )
+        field = get_object_or_404(LoanRequestCustomField, pk=pk)
+        serializer = CustomFieldSerializer(
+            field, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        field = serializer.save()
+        return Response(CustomFieldSerializer(field).data)
+
+    def delete(self, request, pk):
+        if not can_manage_staff(request.user):
+            raise PermissionDenied(
+                "You do not have permission to manage public form fields"
+            )
+        field = get_object_or_404(LoanRequestCustomField, pk=pk)
+        field.active = False
+        field.save(update_fields=["active", "updated"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 def _csv_safe(value):
     if value is None:
         return ""
@@ -1713,9 +1772,11 @@ class ExportRequestsView(LoanAPIView):
     def get(self, request):
         output = io.StringIO()
         writer = csv.writer(output)
+        custom_fields = list(LoanRequestCustomField.objects.all())
         writer.writerow([
             "Reference", "Requester", "Status", "Purpose", "Pickup", "Return",
             "Items", "Created", "Decided by", "Decision notes",
+            *[field.label for field in custom_fields],
         ])
         queryset = _request_sort(
             _filter_request_list(
@@ -1735,6 +1796,14 @@ class ExportRequestsView(LoanAPIView):
                 _csv_safe(item.created.isoformat() if item.created else ""),
                 _csv_safe(item.decided_by),
                 _csv_safe(item.decision_notes),
+                *[
+                    _csv_safe(
+                        "Yes" if field.field_type == "checkbox" and item.custom_fields.get(field.key)
+                        else "No" if field.field_type == "checkbox"
+                        else item.custom_fields.get(field.key, "")
+                    )
+                    for field in custom_fields
+                ],
             ])
         response = HttpResponse(output.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="loan-requests.csv"'
