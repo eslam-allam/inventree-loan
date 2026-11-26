@@ -223,8 +223,9 @@ used:
 1. Open the request detail page and select **Auto allocate**.
 2. Review the allocated stock sub-rows. Each row links to the stock item and
    shows its location and quantity.
-3. Use **Allocate** on a line to add a specific stock item manually, or
-   **Remove** to release an allocation.
+3. Use **Allocate** on a line to add a specific stock item manually, or scan
+   the stock item's barcode/QR in the allocation dialog. Use **Remove** to
+   release an allocation.
 4. Use **Clear allocations** to start again.
 
 Allocations are plans, not stock movements. They reduce the reported public
@@ -260,9 +261,12 @@ requester's tracking page and the printed receipt.
 
 1. Open the **Loans** tab in the Loan Manager console.
 2. Choose the loan and select **Return**.
-3. Adjust return quantities and select the condition.
-4. Ask the borrower to sign, then confirm.
-5. Print the **return receipt** from the loan row or request detail page.
+3. Count returned units by scanning each stock item's barcode/QR, use
+   **Count all**, or type the quantities. The counting panel starts at zero and
+   shows progress against the outstanding units.
+4. Select the condition for each counted line.
+5. Ask the borrower to sign, then confirm.
+6. Print the **return receipt** from the loan row or request detail page.
 
 The item is returned to its original location, the original status is restored, and
 the loan is marked partially returned or returned. The return signature is stored
@@ -276,9 +280,9 @@ history.
   location, and returns it to the original location and status. The returned
   split remains a separate stock item so the loan line keeps its audit link.
 - **Trackable/serialized assets** are individual stock items with a serial or
-  asset label. The public page lists the available units, and each unit is added
-  as quantity 1. Trackable parts are requested in whole units; serialized items
-  cannot be partially returned.
+  asset label. Requesters ask for the part by quantity; the approver assigns
+  specific serials by selecting or scanning them. Serialized items cannot be
+  partially returned.
 
 ### Renew, lose, and overdue
 

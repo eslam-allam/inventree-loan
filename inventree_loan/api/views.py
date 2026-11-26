@@ -819,7 +819,7 @@ class PublicPartDetailView(APIView):
     throttle_classes = []
 
     def get(self, request, pk):
-        data = part_detail(pk)
+        data = part_detail(pk, include_stock_items=False)
         if data is None:
             raise Http404
         return Response(data)
@@ -875,11 +875,26 @@ class PublicScanView(APIView):
         serializer = ScanSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         result = resolve_barcode(None, serializer.validated_data["barcode"])
-        if result.get("type") == "loan":
+        if result.get("type") == "stockitem":
+            # Public requesters request parts, never a specific stock item.
+            data = result.get("data") or {}
+            return Response(
+                {
+                    "success": True,
+                    "type": "part",
+                    "data": {
+                        "pk": data.get("part"),
+                        "name": data.get("part_name"),
+                        "ipn": data.get("ipn", ""),
+                        "trackable": bool(data.get("trackable")),
+                    },
+                }
+            )
+        if result.get("type") in {"loan", "stocklocation"}:
             return Response(
                 {
                     "success": False,
-                    "error": "That barcode belongs to a loan, not an item.",
+                    "error": "Scan a part barcode to add it to the request.",
                 }
             )
         return Response(result)

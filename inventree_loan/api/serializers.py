@@ -40,8 +40,12 @@ class PublicRequestCreateSerializer(RequestCreateSerializer):
     signature = serializers.CharField()
 
     def validate_lines(self, lines):
-        """Public request quantities are whole units."""
+        """Public request quantities are whole units and never specific stock."""
         for line in lines:
+            if line.get("stock_item_id") or line.get("stock_item"):
+                raise serializers.ValidationError(
+                    "Choose a part; the loan desk assigns the stock item."
+                )
             try:
                 quantity = Decimal(str(line.get("quantity", 1)))
             except (InvalidOperation, TypeError, ValueError):

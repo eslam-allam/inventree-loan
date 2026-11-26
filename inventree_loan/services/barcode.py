@@ -56,6 +56,7 @@ def _stock_payload(stock_item, user, full: bool = False) -> dict:
         "ipn": stock_item.part.IPN or "",
         "quantity": float(stock_item.quantity),
         "serial": stock_item.serial or "",
+        "trackable": bool(getattr(stock_item.part, "trackable", False)),
         "status": stock_item.status,
         "status_text": stock_item.status_text,
         "location": stock_item.location.name if stock_item.location else "",

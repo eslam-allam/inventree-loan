@@ -442,17 +442,16 @@
                     <td>
                         <strong>${esc(line.name)}</strong>
                         ${line.ipn ? `<div class="loan-muted">${esc(line.ipn)}</div>` : ''}
-                        ${line.stock_item_id ? `<div class="loan-muted">Asset: ${esc(line.label)}</div>` : ''}
                     </td>
-                    <td><input class="loan-input loan-qty-input" type="number" min="1" max="${line.stock_item_id ? 1 : line.available || ''}" step="1" value="${line.quantity}" data-qty-index="${index}" aria-label="Quantity for ${esc(line.name)}"></td>
+                    <td><input class="loan-input loan-qty-input" type="number" min="1" max="${line.available || ''}" step="1" value="${line.quantity}" data-qty-index="${index}" aria-label="Quantity for ${esc(line.name)}"></td>
                     <td><button class="loan-icon-btn" type="button" data-remove-index="${index}" aria-label="Remove ${esc(line.name)}"><i class="fas fa-trash" aria-hidden="true"></i></button></td>
                 </tr>`).join('');
             cartBody.querySelectorAll('[data-qty-index]').forEach((input) => {
                 input.addEventListener('change', () => {
                     const index = Number(input.dataset.qtyIndex);
                     const line = state.lines[index];
-                    const maximum = line.stock_item_id ? 1 : (num(line.available) || num(input.value));
-                    const value = Math.min(Math.max(Math.round(num(input.value)), 1), Math.max(Math.round(maximum), 1));
+                    const maximum = whole(line.available) || whole(input.value);
+                    const value = Math.min(Math.max(Math.round(num(input.value)), 1), Math.max(maximum, 1));
                     line.quantity = value;
                     input.value = value;
                     renderCart();
@@ -475,7 +474,7 @@
                 }
                 return;
             }
-            const existing = state.lines.find((line) => !line.stock_item_id && line.part_id === part.pk);
+            const existing = state.lines.find((line) => line.part_id === part.pk);
             if (existing) {
                 existing.quantity = Math.min(
                     Math.round(num(existing.quantity)) + Math.max(Math.round(num(quantity)), 1),
@@ -487,34 +486,9 @@
                     name: part.name,
                     ipn: part.ipn || '',
                     quantity: Math.min(Math.max(Math.round(num(quantity)), 1), Math.max(available, 1)),
-                    available,
-                    trackable: Boolean(part.trackable),
-                    stock_item_id: null,
-                    label: ''
+                    available
                 });
             }
-            renderCart();
-        };
-
-        const addStockItem = (item, part) => {
-            if (whole(item.available ?? item.quantity) < 1) return;
-            if (state.lines.some((line) => line.stock_item_id === item.pk)) {
-                if (scanResult) {
-                    scanResult.className = 'catalog-scan-result is-error';
-                    scanResult.textContent = 'This asset is already in the request.';
-                }
-                return;
-            }
-            state.lines.push({
-                part_id: part.pk,
-                name: part.name || item.part_name,
-                ipn: part.ipn || item.ipn || '',
-                quantity: 1,
-                available: whole(item.available ?? item.quantity),
-                trackable: true,
-                stock_item_id: item.pk,
-                label: item.serial || item.label || `#${item.pk}`
-            });
             renderCart();
         };
 
@@ -523,36 +497,25 @@
         };
 
         const renderPartDialog = (part) => {
-            const stockItems = part.stock_items || [];
             const totalAvailable = whole(part.available);
             const availabilityClass = totalAvailable < 1 ? 'is-none' : totalAvailable < 3 ? 'is-low' : '';
             const image = `<i class="fas fa-box" aria-hidden="true"></i>${part.image ? `<img src="${esc(part.image)}" alt="" loading="lazy" onerror="this.remove()">` : ''}`;
-            const stockRows = stockItems.map((item) => `
-                <div class="stock-row">
-                    <div class="stock-row-main">
-                        <div class="stock-row-title">${esc(item.label || `Item #${item.pk}`)}</div>
-                        <div class="stock-row-meta">${esc(item.part_name || '')}${item.part_name && item.location ? ' · ' : ''}${esc(item.location || 'No location')} · ${whole(item.available)} available</div>
-                    </div>
-                    <button class="it-btn it-btn-small it-btn-primary" type="button" data-dialog-add-stock="${item.pk}" aria-label="Add ${esc(item.label || `item ${item.pk}`)}" ${whole(item.available) < 1 ? 'disabled' : ''}>Add</button>
-                </div>`).join('');
             const variants = part.variants || [];
             const variantRows = variants.map((variant) => `
                 <div class="stock-row">
                     <div class="stock-row-main">
                         <div class="stock-row-title">${esc(variant.name)}${variant.ipn ? ` · ${esc(variant.ipn)}` : ''}</div>
-                        <div class="stock-row-meta">${variant.trackable ? 'Tracked asset · ' : ''}${whole(variant.available)} available</div>
+                        <div class="stock-row-meta">${whole(variant.available)} available</div>
                     </div>
-                    <button class="it-btn it-btn-small it-btn-primary" type="button" data-dialog-add-variant="${variant.pk}" aria-label="Add ${esc(variant.name)}" ${whole(variant.available) < 1 ? 'disabled' : ''}>Add</button>
+                    <button class="it-btn it-btn-small it-btn-light" type="button" data-dialog-open-variant="${variant.pk}" aria-label="View ${esc(variant.name)}" ${whole(variant.available) < 1 ? 'disabled' : ''}>View</button>
                 </div>`).join('');
-            const addControl = stockItems.length
-                ? (part.trackable
-                    ? `<p class="stock-row-meta">Choose a specific unit from the list below.</p>`
-                    : `<div class="quantity-add">
-                        <label class="loan-label" for="dialog-quantity">Quantity</label>
-                        <input id="dialog-quantity" type="number" min="1" step="1" value="1" max="${totalAvailable}" data-dialog-quantity>
-                        <button class="it-btn it-btn-primary" type="button" data-dialog-add-part aria-label="Add ${esc(part.name)} to request">Add</button>
-                    </div>`)
-                : `<p class="part-dialog-desc">No units are available to borrow right now.</p>`;
+            const addControl = totalAvailable > 0
+                ? `<div class="quantity-add">
+                    <label class="loan-label" for="dialog-quantity">Quantity</label>
+                    <input id="dialog-quantity" type="number" min="1" step="1" value="1" max="${totalAvailable}" data-dialog-quantity>
+                    <button class="it-btn it-btn-primary" type="button" data-dialog-add-part aria-label="Add ${esc(part.name)} to request">Add</button>
+                </div>`
+                : '<p class="part-dialog-desc">No units are available to borrow right now.</p>';
 
             partDialogContent.innerHTML = `
                 <div class="part-dialog-head">
@@ -570,7 +533,7 @@
                         <p class="part-dialog-desc">${esc(part.description || 'No description available.')}</p>
                         <div class="part-dialog-section">${addControl}</div>
                         ${variants.length ? `<div class="part-dialog-section"><h3>Variants</h3><div class="stock-list">${variantRows}</div></div>` : ''}
-                        ${stockItems.length ? `<div class="part-dialog-section"><h3>${part.trackable ? 'Available units' : 'Stock'}</h3><div class="stock-list">${stockRows}</div></div>` : ''}
+                        <p class="part-dialog-desc">You are requesting the part. The loan desk assigns the exact stock units when the request is approved.</p>
                     </div>
                 </div>`;
 
@@ -580,30 +543,10 @@
                 addPart(part, quantity);
                 closePartDialog();
             });
-            partDialogContent.querySelectorAll('[data-dialog-add-stock]').forEach((button) => {
+            partDialogContent.querySelectorAll('[data-dialog-open-variant]').forEach((button) => {
                 button.addEventListener('click', () => {
-                    const item = stockItems.find((entry) => String(entry.pk) === button.dataset.dialogAddStock);
-                    if (item) {
-                        addStockItem(item, {
-                            pk: item.part,
-                            name: item.part_name,
-                            ipn: item.ipn,
-                            trackable: item.trackable
-                        });
-                        closePartDialog();
-                    }
-                });
-            });
-            partDialogContent.querySelectorAll('[data-dialog-add-variant]').forEach((button) => {
-                button.addEventListener('click', () => {
-                    const variant = variants.find((entry) => String(entry.pk) === button.dataset.dialogAddVariant);
-                    if (!variant) return;
-                    if (variant.trackable) {
-                        openPart(variant.pk, variant);
-                    } else {
-                        addPart(variant, 1);
-                        closePartDialog();
-                    }
+                    const variant = variants.find((entry) => String(entry.pk) === button.dataset.dialogOpenVariant);
+                    if (variant) openPart(variant.pk, variant);
                 });
             });
         };
@@ -804,24 +747,22 @@
                     }
                     return;
                 }
-                if (found.type === 'stockitem') {
-                    addStockItem(found.data, {
-                        pk: found.data.part,
-                        name: found.data.part_name,
-                        ipn: found.data.ipn
-                    });
+                if (found.type === 'stockitem' || found.type === 'part') {
+                    const scannedPart =
+                        found.type === 'stockitem'
+                            ? {
+                                  pk: found.data.part,
+                                  name: found.data.part_name,
+                                  ipn: found.data.ipn
+                              }
+                            : found.data;
+                    openPart(scannedPart.pk, { ...scannedPart, available: 0, variants: [] });
                     if (scanResult) {
                         scanResult.className = 'catalog-scan-result is-success';
-                        scanResult.textContent = `${found.data.part_name} added to the request.`;
-                    }
-                } else if (found.type === 'part') {
-                    openPart(found.data.pk, { ...found.data, available: 0, stock_items: [] });
-                    if (scanResult) {
-                        scanResult.className = 'catalog-scan-result is-success';
-                        scanResult.textContent = `Showing ${found.data.name}.`;
+                        scanResult.textContent = `Showing ${scannedPart.name}. Choose a quantity.`;
                     }
                 } else {
-                    throw new Error('That barcode belongs to a loan, not an item.');
+                    throw new Error('Scan a part barcode to add it to the request.');
                 }
             } catch (error) {
                 if (scanResult) {
@@ -943,7 +884,6 @@
                 requester_identifier: identifier,
                 lines: state.lines.map((line) => ({
                     part_id: line.part_id,
-                    stock_item_id: line.stock_item_id,
                     quantity: line.quantity
                 })),
                 purpose,

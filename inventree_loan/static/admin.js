@@ -653,6 +653,8 @@ function RequestDetailPage({ context, requestId }) {
     const [candidateError, setCandidateError] = useState('');
     const [stockItemId, setStockItemId] = useState('');
     const [quantity, setQuantity] = useState(1);
+    const [scanValue, setScanValue] = useState('');
+    const [scanBusy, setScanBusy] = useState(false);
     const [action, setAction] = useState(null);
     const [notes, setNotes] = useState('');
     const [signature, setSignature] = useState('');
@@ -707,6 +709,8 @@ function RequestDetailPage({ context, requestId }) {
         setCandidates(null);
         setCandidateError('');
         setStockItemId('');
+        setScanValue('');
+        setScanBusy(false);
         setQuantity(Number(line.unallocated_quantity) || 1);
         api.get(`/plugin/loan/api/requests/${requestId}/allocations/candidates/?line_id=${line.pk}`)
             .then((response) => setCandidates(response.data))
@@ -716,6 +720,59 @@ function RequestDetailPage({ context, requestId }) {
     const selectedCandidate = (candidates?.stock_items || []).find(
         (item) => String(item.pk) === String(stockItemId)
     );
+
+    const scanAllocation = (barcode) => {
+        const value = (barcode || '').trim();
+        if (!manualLine || !value) return;
+        if (!candidates) {
+            setCandidateError('Wait for the stock list to load, then scan again.');
+            return;
+        }
+        setScanBusy(true);
+        setCandidateError('');
+        api.post('/plugin/loan/api/scan/', { barcode: value })
+            .then((response) => {
+                const found = response.data || {};
+                if (!found.success) {
+                    setCandidateError(found.error || 'No matching stock item found.');
+                    return;
+                }
+                if (found.type !== 'stockitem') {
+                    setCandidateError('Scan a stock item barcode or QR code.');
+                    return;
+                }
+                const item = (candidates.stock_items || []).find(
+                    (entry) => String(entry.pk) === String(found.data.pk)
+                );
+                if (!item) {
+                    setCandidateError(
+                        `That stock item is not available for ${manualLine.part_name}.`
+                    );
+                    return;
+                }
+                setStockItemId(String(item.pk));
+                setScanValue('');
+                if (item.serialized) {
+                    setQuantity(1);
+                    allocate({
+                        line_id: manualLine.pk,
+                        stock_item_id: item.pk,
+                        quantity: 1
+                    })
+                        .then(() => setManualLine(null))
+                        .catch(() => {});
+                } else {
+                    setQuantity(
+                        Math.min(
+                            Number(item.available) || 1,
+                            Number(manualLine.unallocated_quantity) || 1
+                        )
+                    );
+                }
+            })
+            .catch((err) => setCandidateError(errorText(err)))
+            .finally(() => setScanBusy(false));
+    };
 
     const submitManualAllocation = () => {
         if (!manualLine || !selectedCandidate) {
@@ -960,6 +1017,34 @@ function RequestDetailPage({ context, requestId }) {
             h(
                 M.Stack,
                 { gap: 'sm' },
+                h(
+                    M.Group,
+                    { align: 'flex-end', wrap: 'wrap' },
+                    h(M.TextInput, {
+                        label: 'Scan to allocate',
+                        placeholder: 'Scan a stock item barcode or QR code',
+                        value: scanValue,
+                        onChange: (event) => setScanValue(event.currentTarget.value),
+                        onKeyDown: (event) => {
+                            if (event.key === 'Enter') {
+                                event.preventDefault();
+                                scanAllocation(scanValue);
+                            }
+                        },
+                        style: { flex: '1 1 320px' },
+                        description:
+                            'Serialized items are allocated immediately. Bulk items are selected for the quantity below.'
+                    }),
+                    h(
+                        M.Button,
+                        {
+                            variant: 'default',
+                            loading: scanBusy,
+                            onClick: () => scanAllocation(scanValue)
+                        },
+                        'Scan'
+                    )
+                ),
                 candidateError ? h(ErrorAlert, { error: candidateError }) : null,
                 candidates
                     ? h(M.Select, {
@@ -1810,6 +1895,9 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
     const [conditions, setConditions] = useState({});
     const [notes, setNotes] = useState('');
     const [signature, setSignature] = useState('');
+    const [scanValue, setScanValue] = useState('');
+    const [scanBusy, setScanBusy] = useState(false);
+    const [scanNote, setScanNote] = useState('');
 
     useEffect(() => {
         if (!loan) {
@@ -1817,6 +1905,9 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
             setQuantities({});
             setConditions({});
             setSignature('');
+            setScanValue('');
+            setScanBusy(false);
+            setScanNote('');
             setError('');
             return;
         }
@@ -1831,11 +1922,14 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
                 const cond = {};
                 (data.items || []).forEach((item) => {
                     if (item.lost || Number(item.remaining_quantity) <= 0) return;
-                    qty[item.pk] = Number(item.remaining_quantity);
+                    qty[item.pk] = 0;
                     cond[item.pk] = 'good';
                 });
                 setQuantities(qty);
                 setConditions(cond);
+                setScanValue('');
+                setScanNote('');
+                setScanBusy(false);
             })
             .catch((err) => {
                 if (active) setError(errorText(err));
@@ -1848,6 +1942,102 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
     const items = (detail?.items || []).filter(
         (item) => !item.lost && Number(item.remaining_quantity) > 0
     );
+    const expectedUnits = items.reduce(
+        (total, item) => total + Number(item.remaining_quantity || 0),
+        0
+    );
+    const countedUnits = items.reduce(
+        (total, item) =>
+            total +
+            Math.min(
+                Number(quantities[item.pk] || 0),
+                Number(item.remaining_quantity || 0)
+            ),
+        0
+    );
+    const countedLines = items.filter(
+        (item) => Number(quantities[item.pk] || 0) > 0
+    ).length;
+    const progress = expectedUnits
+        ? Math.round((countedUnits / expectedUnits) * 100)
+        : 100;
+
+    const countItem = (item, quantity) => {
+        setQuantities((current) => ({
+            ...current,
+            [item.pk]: Math.min(
+                Math.max(Number(quantity) || 0, 0),
+                Number(item.remaining_quantity) || 0
+            )
+        }));
+    };
+
+    const countAll = () => {
+        const next = {};
+        items.forEach((item) => {
+            next[item.pk] = Number(item.remaining_quantity) || 0;
+        });
+        setQuantities(next);
+        setScanNote('All outstanding units counted.');
+    };
+
+    const resetCounts = () => {
+        const next = {};
+        items.forEach((item) => {
+            next[item.pk] = 0;
+        });
+        setQuantities(next);
+        setScanNote('');
+        setError('');
+    };
+
+    const scanReturn = (barcode) => {
+        const value = (barcode || '').trim();
+        if (!detail || !value) return;
+        setScanBusy(true);
+        setScanNote('');
+        setError('');
+        api.post('/plugin/loan/api/scan/', { barcode: value })
+            .then((response) => {
+                const found = response.data || {};
+                if (!found.success) {
+                    setError(found.error || 'No matching stock item found.');
+                    return;
+                }
+                if (found.type !== 'stockitem') {
+                    setError('Scan a stock item barcode or QR code.');
+                    return;
+                }
+                const item = items.find(
+                    (entry) => String(entry.stock_item) === String(found.data.pk)
+                );
+                if (!item) {
+                    setError(`That stock item is not on loan ${detail.reference}.`);
+                    return;
+                }
+                const remaining = Number(item.remaining_quantity) || 0;
+                const current = Number(quantities[item.pk] || 0);
+                if (remaining <= 0) {
+                    setError('That item has already been returned.');
+                    return;
+                }
+                if (current >= remaining) {
+                    setError(`${item.part_name} is already fully counted.`);
+                    return;
+                }
+                const increment = found.data.serial ? 1 : remaining;
+                const next = Math.min(remaining, current + increment);
+                countItem(item, next);
+                setScanValue('');
+                setScanNote(
+                    `${item.part_name} counted (${next} of ${remaining}${
+                        found.data.serial ? '' : ' units'
+                    }).`
+                );
+            })
+            .catch((err) => setError(errorText(err)))
+            .finally(() => setScanBusy(false));
+    };
 
     const submit = () => {
         if (!detail) return;
@@ -1892,6 +2082,73 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
             { gap: 'sm' },
             detail ? null : h(Loading),
             h(ErrorAlert, { error }),
+            detail && items.length > 0
+                ? h(
+                      M.Paper,
+                      { withBorder: true, p: 'sm' },
+                      h(
+                          M.Stack,
+                          { gap: 'xs' },
+                          h(
+                              M.Group,
+                              { align: 'flex-end', wrap: 'wrap' },
+                              h(M.TextInput, {
+                                  label: 'Scan to count',
+                                  placeholder: 'Scan a stock item barcode or QR code',
+                                  value: scanValue,
+                                  onChange: (event) =>
+                                      setScanValue(event.currentTarget.value),
+                                  onKeyDown: (event) => {
+                                      if (event.key === 'Enter') {
+                                          event.preventDefault();
+                                          scanReturn(scanValue);
+                                      }
+                                  },
+                                  style: { flex: '1 1 320px' },
+                                  description:
+                                      'Scan a serial to count one unit. Scanning a bulk item counts its full outstanding quantity.'
+                              }),
+                              h(
+                                  M.Button,
+                                  {
+                                      variant: 'default',
+                                      loading: scanBusy,
+                                      onClick: () => scanReturn(scanValue)
+                                  },
+                                  'Count'
+                              ),
+                              h(M.Button, { variant: 'light', onClick: countAll }, 'Count all'),
+                              h(
+                                  M.Button,
+                                  { variant: 'subtle', color: 'gray', onClick: resetCounts },
+                                  'Reset'
+                              )
+                          ),
+                          h(M.Progress, {
+                              value: progress,
+                              color: progress === 100 ? 'green' : 'blue',
+                              size: 'sm',
+                              'aria-label': `Counted ${countedUnits} of ${expectedUnits} units`
+                          }),
+                          h(
+                              M.Group,
+                              { justify: 'space-between', wrap: 'wrap' },
+                              h(
+                                  M.Text,
+                                  { size: 'sm', c: 'dimmed' },
+                                  `Counted ${countedUnits} of ${expectedUnits} units · ${countedLines} of ${items.length} lines`
+                              ),
+                              scanNote
+                                  ? h(
+                                        M.Text,
+                                        { size: 'sm', c: 'green', fw: 500 },
+                                        scanNote
+                                    )
+                                  : null
+                          )
+                      )
+                  )
+                : null,
             items.length > 0
                 ? h(
                       'div',
@@ -1919,7 +2176,29 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
                                   h(
                                       M.Table.Tr,
                                       { key: item.pk },
-                                      h(M.Table.Td, null, item.part_name),
+                                      h(
+                                          M.Table.Td,
+                                          null,
+                                          h(
+                                              M.Group,
+                                              { gap: 6, wrap: 'nowrap' },
+                                              h(M.Text, { size: 'sm' }, item.part_name),
+                                              Number(quantities[item.pk] || 0) >=
+                                                  Number(item.remaining_quantity)
+                                                  ? h(
+                                                        M.Text,
+                                                        {
+                                                            size: 'sm',
+                                                            c: 'green',
+                                                            fw: 700,
+                                                            title: 'Counted',
+                                                            'aria-label': 'Counted'
+                                                        },
+                                                        '✓'
+                                                    )
+                                                  : null
+                                          )
+                                      ),
                                       h(M.Table.Td, null, item.stock_item_label),
                                       h(M.Table.Td, null, item.remaining_quantity),
                                       h(

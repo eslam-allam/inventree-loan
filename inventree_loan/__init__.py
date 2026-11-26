@@ -1,5 +1,5 @@
 """InvenTree Loan Manager plugin."""
 
-PLUGIN_VERSION = "0.2.1"
+PLUGIN_VERSION = "0.3.0"
 
 __all__ = ["PLUGIN_VERSION"]

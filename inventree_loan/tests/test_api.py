@@ -4,6 +4,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -154,6 +155,51 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
             format="json",
         )
         self.assertEqual(wrong.status_code, 404)
+
+    def test_public_request_rejects_specific_stock(self):
+        from inventree_loan.api.serializers import PublicRequestCreateSerializer
+
+        serializer = PublicRequestCreateSerializer(
+            data={
+                "requester_name": "Anon",
+                "requester_email": "anon@example.com",
+                "signature": TEST_SIGNATURE,
+                "purpose": "Specific stock test",
+                "responsibility_ack": True,
+                "lines": [
+                    {
+                        "part_id": self.part.pk,
+                        "stock_item_id": 999999,
+                        "quantity": 1,
+                    }
+                ],
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("lines", serializer.errors)
+
+    def test_create_request_rejects_specific_stock(self):
+        with self.assertRaises(ValidationError):
+            create_request(
+                self.user,
+                [
+                    {
+                        "part_id": self.part.pk,
+                        "stock_item_id": 1,
+                        "quantity": 1,
+                    }
+                ],
+                purpose="Specific stock test",
+                responsibility_ack=True,
+                signature=TEST_SIGNATURE,
+            )
+
+    def test_public_part_detail_hides_stock_items(self):
+        response = self.client.get(
+            f"/plugin/loan/api/public/catalog/{self.part.pk}/"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("stock_items", response.data)
 
     def test_public_request_rejects_fractional_quantity(self):
         from inventree_loan.api.serializers import PublicRequestCreateSerializer

@@ -413,7 +413,9 @@ def catalog_parts(
     return {"results": results, "total": total, "offset": offset, "limit": limit}
 
 
-def part_detail(part_id: int, exclude_request=None) -> dict | None:
+def part_detail(
+    part_id: int, exclude_request=None, include_stock_items: bool = True
+) -> dict | None:
     """Return public part details and the individual units available to loan."""
     from part.models import Part
 
@@ -437,32 +439,33 @@ def part_detail(part_id: int, exclude_request=None) -> dict | None:
 
     availability = part_availability(part, exclude_request=exclude_request)
     stock_items = []
-    page_items = list(
-        available_stock_queryset(part)
-        .select_related("location", "part")
-        .order_by("serial", "batch", "pk")[:100]
-    )
-    item_available = stock_item_available_bulk(
-        page_items, exclude_request=exclude_request
-    )
-    for item in page_items:
-        available = item_available.get(item.pk, Decimal(0))
-        if available <= 0:
-            continue
-        stock_items.append({
-            "pk": item.pk,
-            "part": item.part_id,
-            "part_name": item.part.name,
-            "ipn": item.part.IPN or "",
-            "label": item.serial or item.batch or f"Item #{item.pk}",
-            "serial": item.serial or "",
-            "batch": item.batch or "",
-            "quantity": float(item.quantity),
-            "available": float(available),
-            "location": item.location.pathstring if item.location else "",
-            "serialized": bool(item.serialized),
-            "trackable": bool(getattr(item.part, "trackable", False)),
-        })
+    if include_stock_items:
+        page_items = list(
+            available_stock_queryset(part)
+            .select_related("location", "part")
+            .order_by("serial", "batch", "pk")[:100]
+        )
+        item_available = stock_item_available_bulk(
+            page_items, exclude_request=exclude_request
+        )
+        for item in page_items:
+            available = item_available.get(item.pk, Decimal(0))
+            if available <= 0:
+                continue
+            stock_items.append({
+                "pk": item.pk,
+                "part": item.part_id,
+                "part_name": item.part.name,
+                "ipn": item.part.IPN or "",
+                "label": item.serial or item.batch or f"Item #{item.pk}",
+                "serial": item.serial or "",
+                "batch": item.batch or "",
+                "quantity": float(item.quantity),
+                "available": float(available),
+                "location": item.location.pathstring if item.location else "",
+                "serialized": bool(item.serialized),
+                "trackable": bool(getattr(item.part, "trackable", False)),
+            })
 
     is_template = bool(getattr(part, "is_template", False))
     variants = []
@@ -493,7 +496,7 @@ def part_detail(part_id: int, exclude_request=None) -> dict | None:
             for variant in variant_parts
         ]
 
-    return {
+    result = {
         "pk": part.pk,
         "name": part.name,
         "ipn": part.IPN or "",
@@ -508,8 +511,10 @@ def part_detail(part_id: int, exclude_request=None) -> dict | None:
         "available": float(availability["available"]),
         "on_loan": float(availability["on_loan"]),
         "image": _part_image(part),
-        "stock_items": stock_items,
     }
+    if include_stock_items:
+        result["stock_items"] = stock_items
+    return result
 
 
 def _validate_dates(needed_by, return_by):
@@ -704,6 +709,15 @@ def create_request(
     )
     signature = clean_signature(signature, required=require_signature)
 
+    for raw in lines:
+        if raw.get("stock_item") or raw.get("stock_item_id"):
+            raise ValidationError(
+                {
+                    "lines": _(
+                        "Choose a part; the loan desk assigns the stock item"
+                    )
+                }
+            )
     if user is not None:
         _check_active_loan_limit(user)
     cleaned = _validate_lines(lines)
