@@ -59,6 +59,11 @@ function formatDate(value) {
     }
 }
 
+function formatQty(value) {
+    const number = Number(value || 0);
+    return number.toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+
 function Loading() {
     return h(M.Center, { py: 'lg' }, h(M.Loader, { size: 'sm' }));
 }
@@ -76,25 +81,255 @@ function EmptyState({ label }) {
     );
 }
 
-function useRequestList(api, reloadKey) {
-    const [data, setData] = useState(null);
-    const [error, setError] = useState('');
+function useDebounced(value, delay = 300) {
+    const [debounced, setDebounced] = useState(value);
+    useEffect(() => {
+        const timer = window.setTimeout(() => setDebounced(value), delay);
+        return () => window.clearTimeout(timer);
+    }, [value, delay]);
+    return debounced;
+}
+
+function buildQuery(params) {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+            query.set(key, String(value));
+        }
+    });
+    return query.toString();
+}
+
+function usePagedList(api, endpoint, query, reloadKey) {
+    const [result, setResult] = useState({ data: null, total: 0, error: '', loading: true });
     useEffect(() => {
         let active = true;
-        setError('');
-        api.get('/plugin/loan/api/requests/')
+        setResult((current) => ({ ...current, loading: true, error: '' }));
+        const url = query ? `${endpoint}?${query}` : endpoint;
+        api.get(url)
             .then((response) => {
-                if (active) setData(response.data?.results || []);
+                if (!active) return;
+                const rows = response.data?.results || [];
+                setResult({
+                    data: rows,
+                    total: Number(response.data?.total ?? rows.length),
+                    error: '',
+                    loading: false
+                });
             })
             .catch((err) => {
-                if (active) setError(errorText(err));
+                if (!active) return;
+                setResult((current) => ({ ...current, error: errorText(err), loading: false }));
             });
         return () => {
             active = false;
         };
-    }, [api, reloadKey]);
-    return { data, error, loading: data === null && !error };
+    }, [api, endpoint, query, reloadKey]);
+    return result;
 }
+
+function TableToolbar({ search, onSearch, placeholder, filters = [], actions = null }) {
+    return h(
+        M.Paper,
+        { withBorder: true, p: 'sm' },
+        h(
+            M.Group,
+            { gap: 'sm', align: 'flex-end', wrap: 'wrap' },
+            h(M.TextInput, {
+                size: 'sm',
+                placeholder: placeholder || 'Search…',
+                value: search,
+                onChange: (event) => onSearch(event.currentTarget.value),
+                leftSection: h(M.Text, { size: 'sm', c: 'dimmed' }, '⌕'),
+                rightSection: search
+                    ? h(M.CloseButton, {
+                          size: 'sm',
+                          onClick: () => onSearch(''),
+                          'aria-label': 'Clear search'
+                      })
+                    : null,
+                style: { flex: '1 1 240px', minWidth: 210 }
+            }),
+            ...filters.map((filter) =>
+                h(M.Select, {
+                    size: 'sm',
+                    allowDeselect: false,
+                    comboboxProps: { withinPortal: true },
+                    ...filter,
+                    key: filter.key || filter.placeholder,
+                    style: { width: filter.width || 170, ...(filter.style || {}) }
+                })
+            ),
+            actions
+        )
+    );
+}
+
+function TableFooter({ total, limit, page, onPage, onLimit, label = 'items' }) {
+    const pages = Math.max(Math.ceil(total / limit), 1);
+    const singular =
+        label === 'staff' ? 'staff' : label.endsWith('s') ? label.slice(0, -1) : label;
+    const countLabel = Number(total) === 1 ? singular : label;
+    return h(
+        M.Group,
+        { justify: 'space-between', align: 'center', gap: 'sm', wrap: 'wrap', mt: 'xs' },
+        h(
+            M.Group,
+            { gap: 'xs' },
+            h(M.Text, { size: 'sm', c: 'dimmed' }, `${Number(total || 0).toLocaleString()} ${countLabel}`),
+            h(M.Select, {
+                size: 'xs',
+                value: String(limit),
+                onChange: (value) => onLimit(Number(value || 25)),
+                data: ['10', '25', '50', '100'],
+                allowDeselect: false,
+                w: 82,
+                'aria-label': 'Rows per page'
+            })
+        ),
+        pages > 1
+            ? h(M.Pagination, {
+                  size: 'sm',
+                  total: pages,
+                  value: Math.min(page + 1, pages),
+                  onChange: (value) => onPage(value - 1)
+              })
+            : null
+    );
+}
+
+function SortTh({ label, field, sort, onSort }) {
+    const active = sort === field || sort === `-${field}`;
+    return h(
+        M.Table.Th,
+        {
+            style: { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' },
+            onClick: () => onSort(field),
+            'aria-sort': active ? (sort.startsWith('-') ? 'descending' : 'ascending') : 'none'
+        },
+        h(
+            M.Group,
+            { gap: 4, wrap: 'nowrap' },
+            label,
+            active ? h(M.Text, { size: 'xs', c: 'dimmed' }, sort.startsWith('-') ? '▼' : '▲') : null
+        )
+    );
+}
+
+function TableShell({ loading, children }) {
+    return h(
+        M.Paper,
+        { withBorder: true, style: { position: 'relative' } },
+        h(M.LoadingOverlay, {
+            visible: Boolean(loading),
+            overlayProps: { backgroundOpacity: 0.35, blur: 1 }
+        }),
+        h('div', { style: { overflowX: 'auto' } }, children)
+    );
+}
+
+function filterLabel(hasFilters, emptyLabel, filteredLabel) {
+    return hasFilters ? filteredLabel : emptyLabel;
+}
+
+function plural(value, singular, pluralForm = `${singular}s`) {
+    return `${Number(value || 0).toLocaleString()} ${Number(value) === 1 ? singular : pluralForm}`;
+}
+
+function formatDateTime(value) {
+    if (!value) return '—';
+    try {
+        return new Date(value).toLocaleString(undefined, {
+            dateStyle: 'medium',
+            timeStyle: 'short'
+        });
+    } catch (_) {
+        return value;
+    }
+}
+
+function StatCard({ label, value, color }) {
+    return h(
+        M.Paper,
+        { withBorder: true, p: 'sm' },
+        h(
+            M.Stack,
+            { gap: 2 },
+            h(M.Text, { size: 'xs', c: 'dimmed', tt: 'uppercase', fw: 600 }, label),
+            h(M.Text, { size: 'xl', fw: 700, c: color || undefined }, Number(value || 0).toLocaleString())
+        )
+    );
+}
+
+const REQUEST_STATUS_OPTIONS = [
+    { value: 'pending', label: 'Pending' },
+    { value: 'approved', label: 'Approved' },
+    { value: 'partially_fulfilled', label: 'Partially fulfilled' },
+    { value: 'fulfilled', label: 'Fulfilled' },
+    { value: 'rejected', label: 'Rejected' },
+    { value: 'cancelled', label: 'Cancelled' }
+];
+
+const REQUEST_ALLOCATION_OPTIONS = [
+    { value: 'complete', label: 'Fully allocated' },
+    { value: 'incomplete', label: 'Needs allocation' }
+];
+
+const REQUEST_SORT_OPTIONS = [
+    { value: '-created', label: 'Newest first' },
+    { value: 'created', label: 'Oldest first' },
+    { value: 'reference', label: 'Reference A–Z' },
+    { value: '-reference', label: 'Reference Z–A' },
+    { value: '-needed_by', label: 'Pickup: latest' },
+    { value: 'needed_by', label: 'Pickup: earliest' },
+    { value: '-return_by', label: 'Return date' },
+    { value: '-items', label: 'Most items' }
+];
+
+const LOAN_STATUS_OPTIONS = [
+    { value: 'open', label: 'Open loans' },
+    { value: 'overdue', label: 'Overdue' },
+    { value: 'due_soon', label: 'Due soon' },
+    { value: 'active', label: 'On loan' },
+    { value: 'partially_returned', label: 'Partially returned' },
+    { value: 'returned', label: 'Returned' },
+    { value: 'lost', label: 'Lost' },
+    { value: 'cancelled', label: 'Cancelled' }
+];
+
+const LOAN_SORT_OPTIONS = [
+    { value: '-issued_at', label: 'Newest issued' },
+    { value: 'issued_at', label: 'Oldest issued' },
+    { value: 'due_at', label: 'Due soonest' },
+    { value: '-due_at', label: 'Due latest' },
+    { value: 'reference', label: 'Reference A–Z' },
+    { value: '-reference', label: 'Reference Z–A' },
+    { value: '-items', label: 'Most items' }
+];
+
+const EVENT_TYPE_OPTIONS = [
+    { value: 'requested', label: 'Request submitted' },
+    { value: 'approved', label: 'Request approved' },
+    { value: 'rejected', label: 'Request rejected' },
+    { value: 'cancelled', label: 'Request cancelled' },
+    { value: 'issued', label: 'Loan issued' },
+    { value: 'partially_returned', label: 'Partially returned' },
+    { value: 'returned', label: 'Loan returned' },
+    { value: 'renewed', label: 'Loan renewed' },
+    { value: 'due_soon', label: 'Due soon reminder' },
+    { value: 'overdue', label: 'Overdue reminder' },
+    { value: 'lost', label: 'Item marked lost' },
+    { value: 'updated', label: 'Record updated' },
+    { value: 'staff_added', label: 'Staff role granted' },
+    { value: 'staff_removed', label: 'Staff role removed' },
+    { value: 'setup', label: 'Setup changed' }
+];
+
+const STAFF_ROLE_OPTIONS = [
+    { value: 'approver', label: 'Approver' },
+    { value: 'desk', label: 'Loan desk' },
+    { value: 'admin', label: 'Loan administrator' }
+];
 
 function SignaturePad({ value, onChange, label = 'Signature', required = false }) {
     const canvasRef = useRef(null);
@@ -770,15 +1005,48 @@ function RequestDetailPage({ context, requestId }) {
     );
 }
 
-function RequestsPanel({ context }) {
+function RequestsPanel({ context, onDataChanged }) {
     const api = context.api;
     const [reloadKey, setReloadKey] = useState(0);
-    const { data: requests, error, loading } = useRequestList(api, reloadKey);
+    const [search, setSearch] = useState('');
+    const [status, setStatus] = useState('');
+    const [allocation, setAllocation] = useState('');
+    const [sort, setSort] = useState('-created');
+    const [page, setPage] = useState(0);
+    const [limit, setLimit] = useState(25);
     const [action, setAction] = useState(null);
     const [notes, setNotes] = useState('');
     const [saving, setSaving] = useState(false);
     const [actionError, setActionError] = useState('');
     const [signature, setSignature] = useState('');
+    const debouncedSearch = useDebounced(search);
+    const query = buildQuery({
+        search: debouncedSearch.trim(),
+        status,
+        allocation,
+        sort,
+        limit,
+        offset: page * limit
+    });
+    const { data: requests, total, error, loading } = usePagedList(
+        api,
+        '/plugin/loan/api/requests/',
+        query,
+        reloadKey
+    );
+    const hasFilters = Boolean(debouncedSearch.trim() || status || allocation);
+    const exportQuery = buildQuery({
+        search: debouncedSearch.trim(),
+        status,
+        allocation,
+        sort
+    });
+
+    const resetPage = () => setPage(0);
+    const toggleSort = (field) => {
+        setSort((current) => (current === `-${field}` ? field : `-${field}`));
+        resetPage();
+    };
 
     const submitAction = useCallback(() => {
         if (!action) return;
@@ -789,147 +1057,321 @@ function RequestsPanel({ context }) {
                 setAction(null);
                 setNotes('');
                 setReloadKey((value) => value + 1);
+                onDataChanged?.();
             })
             .catch((err) => setActionError(errorText(err)))
             .finally(() => setSaving(false));
-    }, [action, api, notes]);
+    }, [action, api, notes, onDataChanged]);
 
-    if (loading) return h(Loading);
-    if (error) return h(ErrorAlert, { error });
+    const openAction = (request, type) => {
+        setAction({ id: request.pk, type });
+        setNotes('');
+        setActionError('');
+        setSignature('');
+    };
 
     return h(
         M.Stack,
         { gap: 'md' },
         h(
             M.Group,
-            { justify: 'space-between' },
+            { justify: 'space-between', align: 'center', wrap: 'wrap' },
             h(M.Title, { order: 4 }, 'Requests'),
-            h(M.Anchor, { href: context.context?.request_url, target: '_blank' }, 'Open request form')
+            h(
+                M.Group,
+                { gap: 'sm' },
+                h(
+                    M.Anchor,
+                    {
+                        href: `/plugin/loan/api/export/requests.csv?${exportQuery}`,
+                        target: '_blank',
+                        size: 'sm'
+                    },
+                    'Export CSV'
+                ),
+            )
         ),
-        requests.length === 0
-            ? h(EmptyState, { label: 'No loan requests yet.' })
-            : h(
-                  M.Paper,
-                  { withBorder: true },
-                  h(
-                      'div',
-                      { style: { overflowX: 'auto' } },
-                      h(
-                          M.Table,
-                          { highlightOnHover: true, verticalSpacing: 'sm' },
-                          h(
-                              M.Table.Thead,
-                              null,
-                              h(
-                                  M.Table.Tr,
-                                  null,
-                                  h(M.Table.Th, null, 'Reference'),
-                                  h(M.Table.Th, null, 'Requester'),
-                                  h(M.Table.Th, null, 'Items'),
-                                  h(M.Table.Th, null, 'Status'),
-                                  h(M.Table.Th, null, 'Created'),
-                                  h(M.Table.Th, null, 'Actions')
-                              )
-                          ),
-                          h(
-                              M.Table.Tbody,
-                              null,
-                              requests.map((request) =>
-                                  h(
-                                      M.Table.Tr,
-                                      { key: request.pk },
-                                      h(M.Table.Td, null, h(M.Text, { fw: 600 }, request.reference)),
-                                      h(M.Table.Td, null, request.requester),
-                                      h(M.Table.Td, null, request.item_count),
-                                      h(
-                                          M.Table.Td,
-                                          null,
-                                          h(StatusBadge, {
-                                              status: request.status,
-                                              label: request.status_display
-                                          })
-                                      ),
-                                      h(M.Table.Td, null, formatDate(request.created)),
-                                      h(
-                                          M.Table.Td,
-                                          null,
-                                          h(
-                                              M.Group,
-                                              { gap: 'xs', wrap: 'nowrap' },
-                                              h(
-                                                  M.Button,
-                                                  {
-                                                      size: 'xs',
-                                                      variant: 'default',
-                                                      onClick: () => context.navigate(`/plugin/loan/requests/${request.pk}`)
-                                                  },
-                                                  'View'
-                                              ),
-                                              request.can_approve
-                                                  ? h(
-                                                        M.Button,
-                                                        {
-                                                            size: 'xs',
-                                                            color: 'green',
-                                                            onClick: () => {
-                                                                setAction({
-                                                                    id: request.pk,
-                                                                    type: 'approve'
-                                                                });
-                                                                setNotes('');
-                                                                setActionError('');
-                                                                setSignature('');
-                                                            }
-                                                        },
-                                                        'Approve'
-                                                    )
-                                                  : null,
-                                              request.can_approve
-                                                  ? h(
-                                                        M.Button,
-                                                        {
-                                                            size: 'xs',
-                                                            color: 'red',
-                                                            variant: 'light',
-                                                            onClick: () => {
-                                                                setAction({
-                                                                    id: request.pk,
-                                                                    type: 'reject'
-                                                                });
-                                                                setNotes('');
-                                                                setActionError('');
-                                                                setSignature('');
-                                                            }
-                                                        },
-                                                        'Reject'
-                                                    )
-                                                  : null,
-                                              request.status === 'approved' && request.can_checkout
-                                                  ? h(
-                                                        M.Button,
-                                                        {
-                                                            size: 'xs',
-                                                            onClick: () => {
-                                                                setAction({
-                                                                    id: request.pk,
-                                                                    type: 'checkout'
-                                                                });
-                                                                setNotes('');
-                                                                setActionError('');
-                                                                setSignature('');
-                                                            }
-                                                        },
-                                                        'Hand out'
-                                                    )
-                                                  : null
-                                          )
-                                      )
-                                  )
-                              )
-                          )
-                      )
+        h(TableToolbar, {
+            search,
+            onSearch: (value) => {
+                setSearch(value);
+                resetPage();
+            },
+            placeholder: 'Search reference, requester, part, purpose…',
+            filters: [
+                {
+                    placeholder: 'All statuses',
+                    data: REQUEST_STATUS_OPTIONS,
+                    value: status || null,
+                    onChange: (value) => {
+                        setStatus(value || '');
+                        resetPage();
+                    },
+                    clearable: true,
+                    width: 170
+                },
+                {
+                    placeholder: 'Any allocation',
+                    data: REQUEST_ALLOCATION_OPTIONS,
+                    value: allocation || null,
+                    onChange: (value) => {
+                        setAllocation(value || '');
+                        resetPage();
+                    },
+                    clearable: true,
+                    width: 175
+                },
+                {
+                    placeholder: 'Sort',
+                    data: REQUEST_SORT_OPTIONS,
+                    value: sort,
+                    onChange: (value) => {
+                        setSort(value || '-created');
+                        resetPage();
+                    },
+                    width: 165
+                }
+            ]
+        }),
+        h(ErrorAlert, { error }),
+        requests && requests.length === 0 && !loading
+            ? h(EmptyState, {
+                  label: filterLabel(
+                      hasFilters,
+                      'No loan requests yet.',
+                      'No requests match these filters.'
                   )
-              ),
+              })
+            : requests
+              ? h(
+                    TableShell,
+                    { loading },
+                    h(
+                        M.Table,
+                        { highlightOnHover: true, verticalSpacing: 'sm', horizontalSpacing: 'md' },
+                        h(
+                            M.Table.Thead,
+                            null,
+                            h(
+                                M.Table.Tr,
+                                null,
+                                h(SortTh, {
+                                    label: 'Reference',
+                                    field: 'reference',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Requester',
+                                    field: 'requester',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Items',
+                                    field: 'items',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Status',
+                                    field: 'status',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(M.Table.Th, null, 'Allocation'),
+                                h(SortTh, {
+                                    label: 'Created',
+                                    field: 'created',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(M.Table.Th, null, 'Actions')
+                            )
+                        ),
+                        h(
+                            M.Table.Tbody,
+                            null,
+                            requests.map((request) =>
+                                h(
+                                    M.Table.Tr,
+                                    { key: request.pk },
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(
+                                                M.Anchor,
+                                                {
+                                                    component: 'button',
+                                                    type: 'button',
+                                                    fw: 600,
+                                                    onClick: () =>
+                                                        context.navigate(
+                                                            `/plugin/loan/requests/${request.pk}`
+                                                        )
+                                                },
+                                                request.reference
+                                            ),
+                                            request.loan_reference
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      `Loan ${request.loan_reference}`
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(M.Text, { size: 'sm', fw: 500 }, request.requester),
+                                            request.requester_email
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      request.requester_email
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(M.Text, { size: 'sm' }, plural(request.item_count, 'line')),
+                                            h(
+                                                M.Text,
+                                                { size: 'xs', c: 'dimmed' },
+                                                plural(request.total_quantity, 'unit')
+                                            )
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 2 },
+                                            h(StatusBadge, {
+                                                status: request.status,
+                                                label: request.status_display
+                                            }),
+                                            request.loan_status
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      request.loan_status_display
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        request.loan_pk
+                                            ? h(
+                                                  M.Badge,
+                                                  { color: 'blue', variant: 'light', size: 'sm' },
+                                                  'Issued'
+                                              )
+                                            : request.status === 'rejected' ||
+                                                request.status === 'cancelled'
+                                              ? h(M.Text, { size: 'xs', c: 'dimmed' }, '—')
+                                              : Number(request.total_quantity) > 0
+                                                ? request.is_fully_allocated
+                                                    ? h(
+                                                          M.Badge,
+                                                          { color: 'green', variant: 'light', size: 'sm' },
+                                                          'Allocated'
+                                                      )
+                                                    : h(
+                                                          M.Badge,
+                                                          { color: 'orange', variant: 'light', size: 'sm' },
+                                                          `${formatQty(request.allocated_quantity)} / ${formatQty(request.total_quantity)}`
+                                                      )
+                                                : h(M.Text, { size: 'xs', c: 'dimmed' }, '—')
+                                    ),
+                                    h(M.Table.Td, null, formatDate(request.created)),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Group,
+                                            { gap: 'xs', wrap: 'nowrap' },
+                                            h(
+                                                M.Button,
+                                                {
+                                                    size: 'xs',
+                                                    variant: 'default',
+                                                    onClick: () =>
+                                                        context.navigate(
+                                                            `/plugin/loan/requests/${request.pk}`
+                                                        )
+                                                },
+                                                'View'
+                                            ),
+                                            request.can_approve
+                                                ? h(
+                                                      M.Button,
+                                                      {
+                                                          size: 'xs',
+                                                          color: 'green',
+                                                          onClick: () => openAction(request, 'approve')
+                                                      },
+                                                      'Approve'
+                                                  )
+                                                : null,
+                                            request.can_approve
+                                                ? h(
+                                                      M.Button,
+                                                      {
+                                                          size: 'xs',
+                                                          color: 'red',
+                                                          variant: 'light',
+                                                          onClick: () => openAction(request, 'reject')
+                                                      },
+                                                      'Reject'
+                                                  )
+                                                : null,
+                                            request.can_checkout
+                                                ? h(
+                                                      M.Button,
+                                                      {
+                                                          size: 'xs',
+                                                          onClick: () => openAction(request, 'checkout')
+                                                      },
+                                                      'Hand out'
+                                                  )
+                                                : null
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+              : h(Loading),
+        total > 0
+            ? h(TableFooter, {
+                  total,
+                  limit,
+                  page,
+                  onPage: setPage,
+                  onLimit: (value) => {
+                      setLimit(value);
+                      resetPage();
+                  },
+                  label: 'requests'
+              })
+            : null,
         h(
             M.Modal,
             {
@@ -988,6 +1430,7 @@ function RequestsPanel({ context }) {
                                             setAction(null);
                                             setNotes('');
                                             setReloadKey((value) => value + 1);
+                                            onDataChanged?.();
                                         })
                                         .catch((err) => setActionError(errorText(err)))
                                         .finally(() => setSaving(false));
@@ -1004,127 +1447,347 @@ function RequestsPanel({ context }) {
     );
 }
 
-function LoansPanel({ context }) {
+function LoansPanel({ context, onDataChanged }) {
     const api = context.api;
     const [reloadKey, setReloadKey] = useState(0);
-    const [loans, setLoans] = useState(null);
-    const [error, setError] = useState('');
+    const [search, setSearch] = useState('');
+    const [status, setStatus] = useState('');
+    const [sort, setSort] = useState('-issued_at');
+    const [page, setPage] = useState(0);
+    const [limit, setLimit] = useState(25);
     const [returnLoan, setReturnLoan] = useState(null);
-
-    useEffect(() => {
-        let active = true;
-        setError('');
-        api.get('/plugin/loan/api/loans/')
-            .then((response) => {
-                if (active) setLoans(response.data?.results || []);
-            })
-            .catch((err) => {
-                if (active) setError(errorText(err));
-            });
-        return () => {
-            active = false;
-        };
-    }, [api, reloadKey]);
-
-    if (loans === null && !error) return h(Loading);
-    if (error) return h(ErrorAlert, { error });
+    const debouncedSearch = useDebounced(search);
+    const query = buildQuery({
+        search: debouncedSearch.trim(),
+        status,
+        sort,
+        limit,
+        offset: page * limit
+    });
+    const { data: loans, total, error, loading } = usePagedList(
+        api,
+        '/plugin/loan/api/loans/',
+        query,
+        reloadKey
+    );
+    const hasFilters = Boolean(debouncedSearch.trim() || status);
+    const exportQuery = buildQuery({ search: debouncedSearch.trim(), status, sort });
+    const resetPage = () => setPage(0);
+    const toggleSort = (field) => {
+        setSort((current) => (current === `-${field}` ? field : `-${field}`));
+        resetPage();
+    };
 
     return h(
         M.Stack,
         { gap: 'md' },
-        h(M.Title, { order: 4 }, 'Loans'),
-        loans.length === 0
-            ? h(EmptyState, { label: 'No loans have been issued yet.' })
-            : h(
-                  M.Paper,
-                  { withBorder: true },
-                  h(
-                      'div',
-                      { style: { overflowX: 'auto' } },
-                      h(
-                          M.Table,
-                          { highlightOnHover: true, verticalSpacing: 'sm' },
-                          h(
-                              M.Table.Thead,
-                              null,
-                              h(
-                                  M.Table.Tr,
-                                  null,
-                                  h(M.Table.Th, null, 'Reference'),
-                                  h(M.Table.Th, null, 'Borrower'),
-                                  h(M.Table.Th, null, 'Items'),
-                                  h(M.Table.Th, null, 'Due'),
-                                  h(M.Table.Th, null, 'Status'),
-                                  h(M.Table.Th, null, 'Actions')
-                              )
-                          ),
-                          h(
-                              M.Table.Tbody,
-                              null,
-                              loans.map((loan) =>
-                                  h(
-                                      M.Table.Tr,
-                                      { key: loan.pk },
-                                      h(M.Table.Td, null, h(M.Text, { fw: 600 }, loan.reference)),
-                                      h(M.Table.Td, null, loan.borrower),
-                                      h(M.Table.Td, null, loan.item_count),
-                                      h(
-                                          M.Table.Td,
-                                          { style: loan.is_overdue ? { color: 'var(--mantine-color-red-6)' } : null },
-                                          formatDate(loan.due_at)
-                                      ),
-                                      h(
-                                          M.Table.Td,
-                                          null,
-                                          h(StatusBadge, {
-                                              status: loan.status,
-                                              label: loan.status_display
-                                          })
-                                      ),
-                                      h(
-                                          M.Table.Td,
-                                          null,
-                                          h(
-                                              M.Group,
-                                              { gap: 6, wrap: 'nowrap' },
-                                              loan.can_return
-                                                  ? h(
-                                                        M.Button,
-                                                        {
-                                                            size: 'xs',
-                                                            onClick: () => setReturnLoan(loan)
-                                                        },
-                                                        'Return'
-                                                    )
-                                                  : null,
-                                              h(
-                                                  M.Anchor,
-                                                  {
-                                                      href: `/plugin/loan/loans/${loan.pk}/receipt/?type=handout`,
-                                                      target: '_blank',
-                                                      size: 'xs'
-                                                  },
-                                                  'Handout receipt'
-                                              ),
-                                              loan.status === 'returned'
-                                                  ? h(
-                                                        M.Anchor,
-                                                        {
-                                                            href: `/plugin/loan/loans/${loan.pk}/receipt/?type=return`,
-                                                            target: '_blank',
-                                                            size: 'xs'
-                                                        },
-                                                        'Return receipt'
-                                                    )
-                                                  : null
-                                          )
-                                      )
-                                  )
-                              )
-                          )
-                      )
+        h(
+            M.Group,
+            { justify: 'space-between', align: 'center', wrap: 'wrap' },
+            h(M.Title, { order: 4 }, 'Loans'),
+            h(
+                M.Group,
+                { gap: 'sm' },
+                h(
+                    M.Anchor,
+                    {
+                        href: `/plugin/loan/api/export/loans.csv?${exportQuery}`,
+                        target: '_blank',
+                        size: 'sm'
+                    },
+                    'Export CSV'
+                ),
+            )
+        ),
+        h(TableToolbar, {
+            search,
+            onSearch: (value) => {
+                setSearch(value);
+                resetPage();
+            },
+            placeholder: 'Search reference, borrower, part, notes…',
+            filters: [
+                {
+                    placeholder: 'All loans',
+                    data: LOAN_STATUS_OPTIONS,
+                    value: status || null,
+                    onChange: (value) => {
+                        setStatus(value || '');
+                        resetPage();
+                    },
+                    clearable: true,
+                    width: 165
+                },
+                {
+                    placeholder: 'Sort',
+                    data: LOAN_SORT_OPTIONS,
+                    value: sort,
+                    onChange: (value) => {
+                        setSort(value || '-issued_at');
+                        resetPage();
+                    },
+                    width: 165
+                }
+            ]
+        }),
+        h(ErrorAlert, { error }),
+        loans && loans.length === 0 && !loading
+            ? h(EmptyState, {
+                  label: filterLabel(
+                      hasFilters,
+                      'No loans have been issued yet.',
+                      'No loans match these filters.'
                   )
-              ),
+              })
+            : loans
+              ? h(
+                    TableShell,
+                    { loading },
+                    h(
+                        M.Table,
+                        { highlightOnHover: true, verticalSpacing: 'sm', horizontalSpacing: 'md' },
+                        h(
+                            M.Table.Thead,
+                            null,
+                            h(
+                                M.Table.Tr,
+                                null,
+                                h(SortTh, {
+                                    label: 'Reference',
+                                    field: 'reference',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Borrower',
+                                    field: 'borrower',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Items',
+                                    field: 'items',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Issued',
+                                    field: 'issued_at',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Due',
+                                    field: 'due_at',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Status',
+                                    field: 'status',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(M.Table.Th, null, 'Actions')
+                            )
+                        ),
+                        h(
+                            M.Table.Tbody,
+                            null,
+                            loans.map((loan) =>
+                                h(
+                                    M.Table.Tr,
+                                    { key: loan.pk },
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            loan.request_pk
+                                                ? h(
+                                                      M.Anchor,
+                                                      {
+                                                          component: 'button',
+                                                          type: 'button',
+                                                          fw: 600,
+                                                          onClick: () =>
+                                                              context.navigate(
+                                                                  `/plugin/loan/requests/${loan.request_pk}`
+                                                              )
+                                                      },
+                                                      loan.reference
+                                                  )
+                                                : h(M.Text, { fw: 600 }, loan.reference),
+                                            loan.request_reference
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      loan.request_reference
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(M.Text, { size: 'sm', fw: 500 }, loan.borrower),
+                                            loan.borrower_email
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      loan.borrower_email
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(M.Text, { size: 'sm' }, plural(loan.item_count, 'line')),
+                                            h(
+                                                M.Text,
+                                                { size: 'xs', c: 'dimmed' },
+                                                `${formatQty(loan.remaining_quantity)} of ${formatQty(loan.total_quantity)} out`
+                                            )
+                                        )
+                                    ),
+                                    h(M.Table.Td, null, formatDate(loan.issued_at)),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(
+                                                M.Text,
+                                                {
+                                                    size: 'sm',
+                                                    c: loan.is_overdue ? 'red' : undefined,
+                                                    fw: loan.is_overdue ? 600 : undefined
+                                                },
+                                                formatDate(loan.due_at)
+                                            ),
+                                            loan.is_overdue
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'red' },
+                                                      `${loan.days_overdue} day${loan.days_overdue === 1 ? '' : 's'} overdue`
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 2 },
+                                            h(StatusBadge, {
+                                                status: loan.status,
+                                                label: loan.status_display
+                                            }),
+                                            loan.renewals
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      `${loan.renewals} renewal${loan.renewals === 1 ? '' : 's'}`
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Group,
+                                            { gap: 'xs', wrap: 'nowrap' },
+                                            loan.can_return
+                                                ? h(
+                                                      M.Button,
+                                                      {
+                                                          size: 'xs',
+                                                          onClick: () => setReturnLoan(loan)
+                                                      },
+                                                      'Return'
+                                                  )
+                                                : null,
+                                            h(
+                                                M.Menu,
+                                                { position: 'bottom-end', shadow: 'md' },
+                                                h(
+                                                    M.Menu.Target,
+                                                    null,
+                                                    h(
+                                                        M.Button,
+                                                        { size: 'xs', variant: 'default' },
+                                                        'More'
+                                                    )
+                                                ),
+                                                h(
+                                                    M.Menu.Dropdown,
+                                                    null,
+                                                    h(
+                                                        M.Menu.Item,
+                                                        {
+                                                            component: 'a',
+                                                            href: loan.handout_receipt_url,
+                                                            target: '_blank'
+                                                        },
+                                                        'Handout receipt'
+                                                    ),
+                                                    loan.status === 'returned'
+                                                        ? h(
+                                                              M.Menu.Item,
+                                                              {
+                                                                  component: 'a',
+                                                                  href: loan.return_receipt_url,
+                                                                  target: '_blank'
+                                                              },
+                                                              'Return receipt'
+                                                          )
+                                                        : null,
+                                                    loan.request_pk
+                                                        ? h(
+                                                              M.Menu.Item,
+                                                              {
+                                                                  onClick: () =>
+                                                                      context.navigate(
+                                                                          `/plugin/loan/requests/${loan.request_pk}`
+                                                                      )
+                                                              },
+                                                              'Open request'
+                                                          )
+                                                        : null
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+              : h(Loading),
+        total > 0
+            ? h(TableFooter, {
+                  total,
+                  limit,
+                  page,
+                  onPage: setPage,
+                  onLimit: (value) => {
+                      setLimit(value);
+                      resetPage();
+                  },
+                  label: 'loans'
+              })
+            : null,
         h(ReturnModal, {
             context,
             loan: returnLoan,
@@ -1132,6 +1795,7 @@ function LoansPanel({ context }) {
             onSaved: () => {
                 setReturnLoan(null);
                 setReloadKey((value) => value + 1);
+                onDataChanged?.();
             }
         })
     );
@@ -1320,29 +1984,39 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
     );
 }
 
-function HandoutPanel({ context }) {
+function HandoutPanel({ context, onDataChanged }) {
     const api = context.api;
-    const [requests, setRequests] = useState(null);
+    const [search, setSearch] = useState('');
+    const [allocation, setAllocation] = useState('');
+    const [sort, setSort] = useState('needed_by');
+    const [page, setPage] = useState(0);
+    const [limit, setLimit] = useState(25);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(null);
     const [result, setResult] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [handoutId, setHandoutId] = useState(null);
-
-    useEffect(() => {
-        let active = true;
-        setError('');
-        api.get('/plugin/loan/api/requests/?status=approved')
-            .then((response) => {
-                if (active) setRequests(response.data?.results || []);
-            })
-            .catch((err) => {
-                if (active) setError(errorText(err));
-            });
-        return () => {
-            active = false;
-        };
-    }, [api, reloadKey]);
+    const debouncedSearch = useDebounced(search);
+    const query = buildQuery({
+        status: 'approved',
+        search: debouncedSearch.trim(),
+        allocation,
+        sort,
+        limit,
+        offset: page * limit
+    });
+    const {
+        data: requests,
+        total,
+        error: listError,
+        loading
+    } = usePagedList(api, '/plugin/loan/api/requests/', query, reloadKey);
+    const hasFilters = Boolean(debouncedSearch.trim() || allocation);
+    const resetPage = () => setPage(0);
+    const toggleSort = (field) => {
+        setSort((current) => (current === `-${field}` ? field : `-${field}`));
+        resetPage();
+    };
 
     const handout = (requestId, signature) => {
         setBusy(requestId);
@@ -1356,6 +2030,7 @@ function HandoutPanel({ context }) {
                 setResult(response.data);
                 setReloadKey((value) => value + 1);
                 setHandoutId(null);
+                onDataChanged?.();
             })
             .catch((err) => {
                 setError(errorText(err));
@@ -1364,18 +2039,19 @@ function HandoutPanel({ context }) {
             .finally(() => setBusy(null));
     };
 
-    if (requests === null && !error) return h(Loading);
-
     return h(
         M.Stack,
         { gap: 'md' },
         h(
             M.Group,
-            { justify: 'space-between' },
+            { justify: 'space-between', align: 'center', wrap: 'wrap' },
             h(M.Title, { order: 4 }, 'Hand out'),
-            h(M.Anchor, { href: context.context?.request_url, target: '_blank' }, 'Create a request')
+            h(
+                M.Anchor,
+                { href: context.context?.request_url, target: '_blank', size: 'sm' },
+                'Create a request'
+            )
         ),
-        h(ErrorAlert, { error }),
         result
             ? h(
                   M.Alert,
@@ -1383,71 +2059,214 @@ function HandoutPanel({ context }) {
                   h(
                       M.Group,
                       { gap: 'sm' },
-                      h(M.Anchor, { href: `/plugin/loan/loans/${result.pk}/receipt/?type=handout`, target: '_blank' }, 'Print handout receipt'),
+                      h(
+                          M.Anchor,
+                          {
+                              href: `/plugin/loan/loans/${result.pk}/receipt/?type=handout`,
+                              target: '_blank'
+                          },
+                          'Print handout receipt'
+                      ),
                       h(M.Anchor, { href: result.qr_url, target: '_blank' }, 'Open QR')
                   )
               )
             : null,
-        requests && requests.length === 0
-            ? h(EmptyState, { label: 'No approved requests are waiting for handout.' })
+        h(TableToolbar, {
+            search,
+            onSearch: (value) => {
+                setSearch(value);
+                resetPage();
+            },
+            placeholder: 'Search approved requests…',
+            filters: [
+                {
+                    placeholder: 'Any allocation',
+                    data: REQUEST_ALLOCATION_OPTIONS,
+                    value: allocation || null,
+                    onChange: (value) => {
+                        setAllocation(value || '');
+                        resetPage();
+                    },
+                    clearable: true,
+                    width: 175
+                },
+                {
+                    placeholder: 'Sort',
+                    data: REQUEST_SORT_OPTIONS,
+                    value: sort,
+                    onChange: (value) => {
+                        setSort(value || 'needed_by');
+                        resetPage();
+                    },
+                    width: 165
+                }
+            ]
+        }),
+        h(ErrorAlert, { error }),
+        h(ErrorAlert, { error: listError }),
+        requests && requests.length === 0 && !loading
+            ? h(EmptyState, {
+                  label: filterLabel(
+                      hasFilters,
+                      'No approved requests are waiting for handout.',
+                      'No approved requests match these filters.'
+                  )
+              })
             : requests
               ? h(
-                    M.Paper,
-                    { withBorder: true },
+                    TableShell,
+                    { loading },
                     h(
-                        'div',
-                        { style: { overflowX: 'auto' } },
+                        M.Table,
+                        { highlightOnHover: true, verticalSpacing: 'sm', horizontalSpacing: 'md' },
                         h(
-                            M.Table,
-                            { highlightOnHover: true, verticalSpacing: 'sm' },
+                            M.Table.Thead,
+                            null,
                             h(
-                                M.Table.Thead,
+                                M.Table.Tr,
                                 null,
+                                h(SortTh, {
+                                    label: 'Reference',
+                                    field: 'reference',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Requester',
+                                    field: 'requester',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Items',
+                                    field: 'items',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(M.Table.Th, null, 'Allocation'),
+                                h(SortTh, {
+                                    label: 'Pickup',
+                                    field: 'needed_by',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(SortTh, {
+                                    label: 'Return by',
+                                    field: 'return_by',
+                                    sort,
+                                    onSort: toggleSort
+                                }),
+                                h(M.Table.Th, null, 'Actions')
+                            )
+                        ),
+                        h(
+                            M.Table.Tbody,
+                            null,
+                            requests.map((request) =>
                                 h(
                                     M.Table.Tr,
-                                    null,
-                                    h(M.Table.Th, null, 'Reference'),
-                                    h(M.Table.Th, null, 'Requester'),
-                                    h(M.Table.Th, null, 'Items'),
-                                    h(M.Table.Th, null, 'Requested return'),
-                                    h(M.Table.Th, null, 'Actions')
-                                )
-                            ),
-                            h(
-                                M.Table.Tbody,
-                                null,
-                                requests.map((request) =>
+                                    { key: request.pk },
                                     h(
-                                        M.Table.Tr,
-                                        { key: request.pk },
-                                        h(M.Table.Td, null, h(M.Text, { fw: 600 }, request.reference)),
-                                        h(M.Table.Td, null, request.requester),
-                                        h(M.Table.Td, null, request.item_count),
-                                        h(M.Table.Td, null, formatDate(request.return_by)),
+                                        M.Table.Td,
+                                        null,
                                         h(
-                                            M.Table.Td,
-                                            null,
+                                            M.Stack,
+                                            { gap: 0 },
                                             h(
-                                                M.Group,
-                                                { gap: 'xs', wrap: 'nowrap' },
-                                                h(
-                                                    M.Button,
-                                                    {
-                                                        size: 'xs',
-                                                        variant: 'default',
-                                                        onClick: () => context.navigate(`/plugin/loan/requests/${request.pk}`)
-                                                    },
-                                                    'View'
-                                                ),
-                                                h(
-                                                    M.Button,
-                                                    {
-                                                        size: 'xs',
-                                                        loading: busy === request.pk,
-                                                        onClick: () => setHandoutId(request.pk)
-                                                    },
-                                                    'Hand out'
-                                                )
+                                                M.Anchor,
+                                                {
+                                                    component: 'button',
+                                                    type: 'button',
+                                                    fw: 600,
+                                                    onClick: () =>
+                                                        context.navigate(
+                                                            `/plugin/loan/requests/${request.pk}`
+                                                        )
+                                                },
+                                                request.reference
+                                            ),
+                                            request.requester_organization
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      request.requester_organization
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(M.Text, { size: 'sm', fw: 500 }, request.requester),
+                                            request.requester_email
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      request.requester_email
+                                                  )
+                                                : null
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(M.Text, { size: 'sm' }, plural(request.item_count, 'line')),
+                                            h(
+                                                M.Text,
+                                                { size: 'xs', c: 'dimmed' },
+                                                plural(request.total_quantity, 'unit')
+                                            )
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        request.is_fully_allocated
+                                            ? h(
+                                                  M.Badge,
+                                                  { color: 'green', variant: 'light', size: 'sm' },
+                                                  'Allocated'
+                                              )
+                                            : h(
+                                                  M.Badge,
+                                                  { color: 'orange', variant: 'light', size: 'sm' },
+                                                  `${formatQty(request.allocated_quantity)} / ${formatQty(request.total_quantity)}`
+                                              )
+                                    ),
+                                    h(M.Table.Td, null, formatDate(request.needed_by)),
+                                    h(M.Table.Td, null, formatDate(request.return_by)),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Group,
+                                            { gap: 'xs', wrap: 'nowrap' },
+                                            h(
+                                                M.Button,
+                                                {
+                                                    size: 'xs',
+                                                    variant: 'default',
+                                                    onClick: () =>
+                                                        context.navigate(
+                                                            `/plugin/loan/requests/${request.pk}`
+                                                        )
+                                                },
+                                                'View'
+                                            ),
+                                            h(
+                                                M.Button,
+                                                {
+                                                    size: 'xs',
+                                                    loading: busy === request.pk,
+                                                    onClick: () => setHandoutId(request.pk)
+                                                },
+                                                'Hand out'
                                             )
                                         )
                                     )
@@ -1456,7 +2275,20 @@ function HandoutPanel({ context }) {
                         )
                     )
                 )
-              : null,
+              : h(Loading),
+        total > 0
+            ? h(TableFooter, {
+                  total,
+                  limit,
+                  page,
+                  onPage: setPage,
+                  onLimit: (value) => {
+                      setLimit(value);
+                      resetPage();
+                  },
+                  label: 'ready requests'
+              })
+            : null,
         h(RequestDetailModal, {
             context,
             requestId: handoutId,
@@ -1469,38 +2301,84 @@ function HandoutPanel({ context }) {
 
 function StaffPanel({ context }) {
     const api = context.api;
-    const [staff, setStaff] = useState(null);
-    const [error, setError] = useState('');
-    const [username, setUsername] = useState('');
-    const [role, setRole] = useState('approver');
-    const [busy, setBusy] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
+    const [search, setSearch] = useState('');
+    const [roleFilter, setRoleFilter] = useState('');
+    const [activeFilter, setActiveFilter] = useState('');
+    const [page, setPage] = useState(0);
+    const [limit, setLimit] = useState(25);
+    const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [userQuery, setUserQuery] = useState('');
+    const [userOptions, setUserOptions] = useState([]);
+    const [selectedUserId, setSelectedUserId] = useState(null);
+    const [userSearchLoading, setUserSearchLoading] = useState(false);
+    const [newRole, setNewRole] = useState('approver');
+    const debouncedSearch = useDebounced(search);
+    const debouncedUserQuery = useDebounced(userQuery, 250);
+    const query = buildQuery({
+        search: debouncedSearch.trim(),
+        role: roleFilter,
+        active: activeFilter,
+        limit,
+        offset: page * limit
+    });
+    const {
+        data: staff,
+        total,
+        error: listError,
+        loading
+    } = usePagedList(api, '/plugin/loan/api/staff/', query, reloadKey);
+    const hasFilters = Boolean(debouncedSearch.trim() || roleFilter || activeFilter);
+    const resetPage = () => setPage(0);
 
     useEffect(() => {
+        const term = debouncedUserQuery.trim();
+        if (term.length < 2) {
+            setUserOptions([]);
+            return undefined;
+        }
         let active = true;
-        setError('');
-        api.get('/plugin/loan/api/staff/')
+        setUserSearchLoading(true);
+        api.get('/plugin/loan/api/user-search/', { params: { search: term } })
             .then((response) => {
-                if (active) setStaff(response.data?.results || []);
+                if (!active) return;
+                setUserOptions(
+                    (response.data?.results || []).map((user) => ({
+                        value: String(user.pk),
+                        label: `${user.name} (@${user.username})${
+                            user.email ? ` · ${user.email}` : ''
+                        }`
+                    }))
+                );
             })
-            .catch((err) => {
-                if (active) setError(errorText(err));
+            .catch(() => {
+                if (active) setUserOptions([]);
+            })
+            .finally(() => {
+                if (active) setUserSearchLoading(false);
             });
         return () => {
             active = false;
         };
-    }, [api, reloadKey]);
+    }, [api, debouncedUserQuery]);
 
     const add = () => {
-        if (!username.trim()) {
-            setError('Enter a username.');
+        if (!selectedUserId) {
+            setError('Search for a user and select them from the results.');
             return;
         }
         setBusy(true);
         setError('');
-        api.post('/plugin/loan/api/staff/', { username: username.trim(), role, active: true })
+        api.post('/plugin/loan/api/staff/', {
+            user_id: Number(selectedUserId),
+            role: newRole,
+            active: true
+        })
             .then(() => {
-                setUsername('');
+                setUserQuery('');
+                setUserOptions([]);
+                setSelectedUserId(null);
                 setReloadKey((value) => value + 1);
             })
             .catch((err) => setError(errorText(err)))
@@ -1522,111 +2400,196 @@ function StaffPanel({ context }) {
             .catch((err) => setError(errorText(err)));
     };
 
-    if (staff === null && !error) return h(Loading);
-
     return h(
         M.Stack,
         { gap: 'md' },
         h(M.Title, { order: 4 }, 'Loan staff'),
-        h(ErrorAlert, { error }),
         h(
             M.Paper,
             { withBorder: true, p: 'md' },
             h(
-                M.Group,
-                { align: 'flex-end' },
-                h(M.TextInput, {
-                    label: 'Username',
-                    value: username,
-                    onChange: (event) => setUsername(event.currentTarget.value),
-                    style: { flex: 1 }
-                }),
-                h(M.Select, {
-                    label: 'Role',
-                    value: role,
-                    onChange: setRole,
-                    data: [
-                        { value: 'approver', label: 'Approver' },
-                        { value: 'desk', label: 'Loan desk' },
-                        { value: 'admin', label: 'Loan administrator' }
-                    ],
-                    style: { width: 200 }
-                }),
-                h(M.Button, { loading: busy, onClick: add }, 'Add role')
+                M.Stack,
+                { gap: 'sm' },
+                h(M.Text, { fw: 600 }, 'Grant a loan role'),
+                h(
+                    M.Text,
+                    { size: 'sm', c: 'dimmed' },
+                    'Search by name, username or email instead of typing the exact username.'
+                ),
+                h(
+                    M.Group,
+                    { align: 'flex-end', wrap: 'wrap' },
+                    h(M.Select, {
+                        label: 'Find user',
+                        placeholder: 'Search users…',
+                        searchable: true,
+                        clearable: true,
+                        data: userOptions,
+                        value: selectedUserId,
+                        searchValue: userQuery,
+                        onSearchChange: (value) => {
+                            setUserQuery(value || '');
+                            setSelectedUserId(null);
+                        },
+                        onChange: (value) => {
+                            setSelectedUserId(value || null);
+                            const selected = userOptions.find((item) => item.value === value);
+                            if (selected) setUserQuery(selected.label);
+                        },
+                        rightSection: userSearchLoading
+                            ? h(M.Loader, { size: 'xs' })
+                            : undefined,
+                        nothingFoundMessage:
+                            userQuery.trim().length >= 2
+                                ? 'No matching users'
+                                : 'Type at least 2 characters',
+                        style: { flex: '1 1 340px', minWidth: 260 }
+                    }),
+                    h(M.Select, {
+                        label: 'Role',
+                        data: STAFF_ROLE_OPTIONS,
+                        value: newRole,
+                        onChange: (value) => setNewRole(value || 'approver'),
+                        allowDeselect: false,
+                        w: 200
+                    }),
+                    h(M.Button, { loading: busy, onClick: add }, 'Add or update')
+                ),
+                h(ErrorAlert, { error })
             )
         ),
-        staff && staff.length === 0
-            ? h(EmptyState, { label: 'No loan staff roles yet. Superusers always have access.' })
+        h(TableToolbar, {
+            search,
+            onSearch: (value) => {
+                setSearch(value);
+                resetPage();
+            },
+            placeholder: 'Search staff by name, username or email…',
+            filters: [
+                {
+                    placeholder: 'All roles',
+                    data: STAFF_ROLE_OPTIONS,
+                    value: roleFilter || null,
+                    onChange: (value) => {
+                        setRoleFilter(value || '');
+                        resetPage();
+                    },
+                    clearable: true,
+                    width: 180
+                },
+                {
+                    placeholder: 'Any status',
+                    data: [
+                        { value: '1', label: 'Active' },
+                        { value: '0', label: 'Inactive' }
+                    ],
+                    value: activeFilter || null,
+                    onChange: (value) => {
+                        setActiveFilter(value || '');
+                        resetPage();
+                    },
+                    clearable: true,
+                    width: 150
+                }
+            ]
+        }),
+        h(ErrorAlert, { error: listError }),
+        staff && staff.length === 0 && !loading
+            ? h(EmptyState, {
+                  label: filterLabel(
+                      hasFilters,
+                      'No loan staff have been granted a role yet.',
+                      'No staff match these filters.'
+                  )
+              })
             : staff
               ? h(
-                    M.Paper,
-                    { withBorder: true },
+                    TableShell,
+                    { loading },
                     h(
-                        'div',
-                        { style: { overflowX: 'auto' } },
+                        M.Table,
+                        { highlightOnHover: true, verticalSpacing: 'sm', horizontalSpacing: 'md' },
                         h(
-                            M.Table,
-                            { highlightOnHover: true, verticalSpacing: 'sm' },
+                            M.Table.Thead,
+                            null,
                             h(
-                                M.Table.Thead,
+                                M.Table.Tr,
                                 null,
+                                h(M.Table.Th, null, 'User'),
+                                h(M.Table.Th, null, 'Role'),
+                                h(M.Table.Th, null, 'Status'),
+                                h(M.Table.Th, null, 'Granted by'),
+                                h(M.Table.Th, null, 'Actions')
+                            )
+                        ),
+                        h(
+                            M.Table.Tbody,
+                            null,
+                            staff.map((item) =>
                                 h(
                                     M.Table.Tr,
-                                    null,
-                                    h(M.Table.Th, null, 'User'),
-                                    h(M.Table.Th, null, 'Role'),
-                                    h(M.Table.Th, null, 'Active'),
-                                    h(M.Table.Th, null, 'Actions')
-                                )
-                            ),
-                            h(
-                                M.Table.Tbody,
-                                null,
-                                staff.map((item) =>
+                                    { key: item.pk },
                                     h(
-                                        M.Table.Tr,
-                                        { key: item.pk },
+                                        M.Table.Td,
+                                        null,
                                         h(
-                                            M.Table.Td,
-                                            null,
-                                            h(M.Text, { fw: 600 }, item.username),
-                                            h(M.Text, { size: 'sm', c: 'dimmed' }, item.name)
-                                        ),
-                                        h(M.Table.Td, null, item.role_display),
-                                        h(
-                                            M.Table.Td,
-                                            null,
+                                            M.Stack,
+                                            { gap: 0 },
+                                            h(M.Text, { size: 'sm', fw: 500 }, item.name),
                                             h(
-                                                M.Badge,
-                                                { color: item.active ? 'green' : 'gray', variant: 'light' },
-                                                item.active ? 'Active' : 'Inactive'
+                                                M.Text,
+                                                { size: 'xs', c: 'dimmed' },
+                                                `@${item.username}`
                                             )
-                                        ),
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
                                         h(
-                                            M.Table.Td,
-                                            null,
+                                            M.Badge,
+                                            { color: 'blue', variant: 'light', size: 'sm' },
+                                            item.role_display
+                                        )
+                                    ),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Badge,
+                                            {
+                                                color: item.active ? 'green' : 'gray',
+                                                variant: 'light',
+                                                size: 'sm'
+                                            },
+                                            item.active ? 'Active' : 'Inactive'
+                                        )
+                                    ),
+                                    h(M.Table.Td, null, item.created_by || '—'),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(
+                                            M.Group,
+                                            { gap: 'xs', wrap: 'nowrap' },
                                             h(
-                                                M.Group,
-                                                { gap: 'xs', wrap: 'nowrap' },
-                                                h(
-                                                    M.Button,
-                                                    {
-                                                        size: 'xs',
-                                                        variant: 'default',
-                                                        onClick: () => toggle(item)
-                                                    },
-                                                    item.active ? 'Deactivate' : 'Activate'
-                                                ),
-                                                h(
-                                                    M.Button,
-                                                    {
-                                                        size: 'xs',
-                                                        color: 'red',
-                                                        variant: 'light',
-                                                        onClick: () => remove(item)
-                                                    },
-                                                    'Remove'
-                                                )
+                                                M.Button,
+                                                {
+                                                    size: 'xs',
+                                                    variant: 'default',
+                                                    onClick: () => toggle(item)
+                                                },
+                                                item.active ? 'Deactivate' : 'Activate'
+                                            ),
+                                            h(
+                                                M.Button,
+                                                {
+                                                    size: 'xs',
+                                                    color: 'red',
+                                                    variant: 'light',
+                                                    onClick: () => remove(item)
+                                                },
+                                                'Remove'
                                             )
                                         )
                                     )
@@ -1635,7 +2598,20 @@ function StaffPanel({ context }) {
                         )
                     )
                 )
-              : null
+              : h(Loading),
+        total > 0
+            ? h(TableFooter, {
+                  total,
+                  limit,
+                  page,
+                  onPage: setPage,
+                  onLimit: (value) => {
+                      setLimit(value);
+                      resetPage();
+                  },
+                  label: 'staff'
+              })
+            : null
     );
 }
 
@@ -1707,79 +2683,115 @@ function SetupPanel({ context }) {
 
 function HistoryPanel({ context }) {
     const api = context.api;
-    const [events, setEvents] = useState(null);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        let active = true;
-        setError('');
-        api.get('/plugin/loan/api/events/')
-            .then((response) => {
-                if (active) setEvents(response.data?.results || []);
-            })
-            .catch((err) => {
-                if (active) setError(errorText(err));
-            });
-        return () => {
-            active = false;
-        };
-    }, [api]);
-
-    if (events === null && !error) return h(Loading);
+    const [search, setSearch] = useState('');
+    const [eventType, setEventType] = useState('');
+    const [page, setPage] = useState(0);
+    const [limit, setLimit] = useState(50);
+    const debouncedSearch = useDebounced(search);
+    const query = buildQuery({
+        search: debouncedSearch.trim(),
+        event_type: eventType,
+        limit,
+        offset: page * limit
+    });
+    const {
+        data: events,
+        total,
+        error,
+        loading
+    } = usePagedList(api, '/plugin/loan/api/events/', query, 0);
+    const hasFilters = Boolean(debouncedSearch.trim() || eventType);
+    const resetPage = () => setPage(0);
 
     return h(
         M.Stack,
         { gap: 'md' },
         h(M.Title, { order: 4 }, 'History'),
+        h(TableToolbar, {
+            search,
+            onSearch: (value) => {
+                setSearch(value);
+                resetPage();
+            },
+            placeholder: 'Search notes, actor, reference…',
+            filters: [
+                {
+                    placeholder: 'All events',
+                    data: EVENT_TYPE_OPTIONS,
+                    value: eventType || null,
+                    onChange: (value) => {
+                        setEventType(value || '');
+                        resetPage();
+                    },
+                    clearable: true,
+                    width: 200
+                }
+            ]
+        }),
         h(ErrorAlert, { error }),
-        events && events.length === 0
-            ? h(EmptyState, { label: 'No audit events yet.' })
+        events && events.length === 0 && !loading
+            ? h(EmptyState, {
+                  label: filterLabel(
+                      hasFilters,
+                      'No audit events yet.',
+                      'No events match these filters.'
+                  )
+              })
             : events
               ? h(
-                    M.Paper,
-                    { withBorder: true },
+                    TableShell,
+                    { loading },
                     h(
-                        'div',
-                        { style: { overflowX: 'auto' } },
+                        M.Table,
+                        { highlightOnHover: true, verticalSpacing: 'sm', horizontalSpacing: 'md' },
                         h(
-                            M.Table,
-                            { highlightOnHover: true, verticalSpacing: 'sm' },
+                            M.Table.Thead,
+                            null,
                             h(
-                                M.Table.Thead,
+                                M.Table.Tr,
                                 null,
+                                h(M.Table.Th, null, 'When'),
+                                h(M.Table.Th, null, 'Event'),
+                                h(M.Table.Th, null, 'Actor'),
+                                h(M.Table.Th, null, 'Record'),
+                                h(M.Table.Th, null, 'Notes')
+                            )
+                        ),
+                        h(
+                            M.Table.Tbody,
+                            null,
+                            events.map((event) =>
                                 h(
                                     M.Table.Tr,
-                                    null,
-                                    h(M.Table.Th, null, 'When'),
-                                    h(M.Table.Th, null, 'Event'),
-                                    h(M.Table.Th, null, 'Actor'),
-                                    h(M.Table.Th, null, 'Record'),
-                                    h(M.Table.Th, null, 'Notes')
-                                )
-                            ),
-                            h(
-                                M.Table.Tbody,
-                                null,
-                                events.map((event) =>
+                                    { key: event.pk },
+                                    h(M.Table.Td, null, formatDateTime(event.created)),
+                                    h(M.Table.Td, null, event.event_label),
+                                    h(M.Table.Td, null, event.actor || 'System'),
                                     h(
-                                        M.Table.Tr,
-                                        { key: event.pk },
-                                        h(M.Table.Td, null, formatDate(event.created)),
-                                        h(M.Table.Td, null, event.event_label),
-                                        h(M.Table.Td, null, event.actor || 'System'),
-                                        h(
-                                            M.Table.Td,
-                                            null,
-                                            event.loan_reference || event.request_reference || '—'
-                                        ),
-                                        h(M.Table.Td, null, event.notes || '—')
-                                    )
+                                        M.Table.Td,
+                                        null,
+                                        event.loan_reference || event.request_reference || '—'
+                                    ),
+                                    h(M.Table.Td, null, event.notes || '—')
                                 )
                             )
                         )
                     )
                 )
-              : null
+              : h(Loading),
+        total > 0
+            ? h(TableFooter, {
+                  total,
+                  limit,
+                  page,
+                  onPage: setPage,
+                  onLimit: (value) => {
+                      setLimit(value);
+                      resetPage();
+                  },
+                  label: 'events'
+              })
+            : null
     );
 }
 
@@ -1788,6 +2800,8 @@ function AdminConsole({ context }) {
     const [tab, setTab] = useState('requests');
     const [access, setAccess] = useState(null);
     const [accessError, setAccessError] = useState('');
+    const [statsKey, setStatsKey] = useState(0);
+    const refreshStats = () => setStatsKey((value) => value + 1);
 
     // The same native page serves loan staff and ordinary requesters.  Read
     // the role flags from the API so requesters only see their own tabs.
@@ -1803,7 +2817,7 @@ function AdminConsole({ context }) {
         return () => {
             active = false;
         };
-    }, [api]);
+    }, [api, statsKey]);
 
     const isManager = Boolean(access?.is_manager);
     const canHandout = Boolean(access?.can_handout);
@@ -1851,6 +2865,32 @@ function AdminConsole({ context }) {
             )
         ),
         h(ErrorAlert, { error: accessError }),
+        access
+            ? h(
+                  M.SimpleGrid,
+                  { cols: { base: 2, sm: 4 }, spacing: 'sm' },
+                  h(StatCard, {
+                      label: 'Pending requests',
+                      value: access.pending_requests,
+                      color: 'yellow.7'
+                  }),
+                  h(StatCard, {
+                      label: 'Approved',
+                      value: access.approved_requests,
+                      color: 'blue.6'
+                  }),
+                  h(StatCard, {
+                      label: 'On loan',
+                      value: access.active_loans,
+                      color: 'green.6'
+                  }),
+                  h(StatCard, {
+                      label: 'Overdue',
+                      value: access.overdue_loans,
+                      color: 'red.6'
+                  })
+              )
+            : null,
         h(
             M.Tabs,
             { value: tab, onChange: setTab, keepMounted: false },
@@ -1861,10 +2901,22 @@ function AdminConsole({ context }) {
                     h(M.Tabs.Tab, { value: item.value, key: item.value }, item.label)
                 )
             ),
-            h(M.Tabs.Panel, { value: 'requests', pt: 'md' }, h(RequestsPanel, { context })),
-            h(M.Tabs.Panel, { value: 'loans', pt: 'md' }, h(LoansPanel, { context })),
+            h(
+                M.Tabs.Panel,
+                { value: 'requests', pt: 'md' },
+                h(RequestsPanel, { context, onDataChanged: refreshStats })
+            ),
+            h(
+                M.Tabs.Panel,
+                { value: 'loans', pt: 'md' },
+                h(LoansPanel, { context, onDataChanged: refreshStats })
+            ),
             canHandout
-                ? h(M.Tabs.Panel, { value: 'handout', pt: 'md' }, h(HandoutPanel, { context }))
+                ? h(
+                      M.Tabs.Panel,
+                      { value: 'handout', pt: 'md' },
+                      h(HandoutPanel, { context, onDataChanged: refreshStats })
+                  )
                 : null,
             canManage
                 ? h(M.Tabs.Panel, { value: 'staff', pt: 'md' }, h(StaffPanel, { context }))

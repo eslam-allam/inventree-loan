@@ -5,10 +5,22 @@ from __future__ import annotations
 import csv
 import io
 from datetime import timedelta
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q
+from django.db.models import (
+    Count,
+    DecimalField,
+    ExpressionWrapper,
+    F,
+    OuterRef,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+)
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -28,6 +40,8 @@ from ..models import (
     LoanEvent,
     LoanItem,
     LoanRequest,
+    LoanRequestAllocation,
+    LoanRequestLine,
     LoanStaff,
     LoanStaffRole,
 )
@@ -61,6 +75,7 @@ from ..services.requests import (
     catalog_parts,
     create_request,
     part_availability,
+    part_availability_bulk,
     part_detail,
     reject_request,
 )
@@ -102,6 +117,394 @@ def _web_url(path: str) -> str:
     return f"/{get_frontend_base()}{path}"
 
 
+REQUEST_OPEN_STATUSES = ["pending", "approved", "partially_fulfilled"]
+REQUEST_CLOSED_STATUSES = ["fulfilled", "rejected", "cancelled"]
+LOAN_OPEN_STATUSES = ["active", "partially_returned", "overdue"]
+LOAN_CLOSED_STATUSES = ["returned", "cancelled", "lost"]
+
+REQUEST_SORTS = {
+    "created": "created",
+    "-created": "-created",
+    "reference": "reference",
+    "-reference": "-reference",
+    "status": "status",
+    "-status": "-status",
+    "requester": ("requester_name", "requester__username"),
+    "-requester": ("-requester_name", "-requester__username"),
+    "needed_by": "needed_by",
+    "-needed_by": "-needed_by",
+    "return_by": "return_by",
+    "-return_by": "-return_by",
+    "items": "item_count_annotated",
+    "-items": "-item_count_annotated",
+}
+
+LOAN_SORTS = {
+    "issued_at": "issued_at",
+    "-issued_at": "-issued_at",
+    "due_at": "due_at",
+    "-due_at": "-due_at",
+    "reference": "reference",
+    "-reference": "-reference",
+    "status": "status",
+    "-status": "-status",
+    "borrower": ("borrower_name", "borrower__username"),
+    "-borrower": ("-borrower_name", "-borrower__username"),
+    "returned_at": "returned_at",
+    "-returned_at": "-returned_at",
+    "items": "item_count_annotated",
+    "-items": "-item_count_annotated",
+}
+
+
+def _list_permissions(user) -> dict:
+    """Resolve role checks once for a list response instead of once per row."""
+    return {
+        "can_approve": can_approve(user),
+        "can_handout": can_handout(user),
+    }
+
+
+def _int_param(request, name: str, default: int, maximum: int | None = None) -> int:
+    try:
+        value = int(request.GET.get(name, default))
+    except (TypeError, ValueError):
+        value = default
+    value = max(value, 0)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+def _limit_param(request, default: int = 25, maximum: int = 100) -> int:
+    return max(_int_param(request, "limit", default, maximum), 1)
+
+
+def _page_params(request, default_limit: int = 25) -> tuple[int, int]:
+    return _limit_param(request, default_limit), _int_param(request, "offset", 0)
+
+
+def _request_list_queryset(user):
+    """Requests with cheap aggregate annotations for list and CSV views."""
+    line_totals = (
+        LoanRequestLine.objects.filter(request=OuterRef("pk"))
+        .values("request")
+        .annotate(total=Sum("quantity"), count=Count("pk"))
+    )
+    allocated_totals = (
+        LoanRequestAllocation.objects.filter(line__request=OuterRef("pk"))
+        .values("line__request")
+        .annotate(total=Sum("quantity"))
+    )
+    return visible_requests(user).annotate(
+        item_count_annotated=Coalesce(
+            Subquery(line_totals.values("count")[:1]), Value(0)
+        ),
+        total_quantity_annotated=Coalesce(
+            Subquery(line_totals.values("total")[:1]),
+            Value(Decimal("0")),
+            output_field=DecimalField(max_digits=15, decimal_places=5),
+        ),
+        allocated_quantity_annotated=Coalesce(
+            Subquery(allocated_totals.values("total")[:1]),
+            Value(Decimal("0")),
+            output_field=DecimalField(max_digits=15, decimal_places=5),
+        ),
+    )
+
+
+def _filter_request_list(queryset, params):
+    search = params.get("search", "").strip()
+    if search:
+        queryset = queryset.filter(
+            Q(reference__icontains=search)
+            | Q(loan__reference__icontains=search)
+            | Q(requester__username__icontains=search)
+            | Q(requester__first_name__icontains=search)
+            | Q(requester__last_name__icontains=search)
+            | Q(requester__email__icontains=search)
+            | Q(requester_name__icontains=search)
+            | Q(requester_email__icontains=search)
+            | Q(requester_phone__icontains=search)
+            | Q(requester_organization__icontains=search)
+            | Q(requester_identifier__icontains=search)
+            | Q(purpose__icontains=search)
+            | Q(project__icontains=search)
+            | Q(notes__icontains=search)
+            | Q(lines__part__name__icontains=search)
+            | Q(lines__part__IPN__icontains=search)
+        ).distinct()
+
+    raw_status = params.get("status", "").strip()
+    if raw_status:
+        statuses = []
+        for token in raw_status.split(","):
+            token = token.strip()
+            if token == "open":
+                statuses.extend(REQUEST_OPEN_STATUSES)
+            elif token == "closed":
+                statuses.extend(REQUEST_CLOSED_STATUSES)
+            elif token:
+                statuses.append(token)
+        if statuses:
+            queryset = queryset.filter(status__in=statuses)
+
+    allocation = params.get("allocation", "").strip()
+    if allocation in {"complete", "incomplete"}:
+        # Only open requests still need allocation.  Closed or fulfilled
+        # requests should not appear as "needs allocation" forever.
+        queryset = queryset.filter(status__in=REQUEST_OPEN_STATUSES)
+        if allocation == "complete":
+            queryset = queryset.filter(
+                allocated_quantity_annotated__gte=F("total_quantity_annotated")
+            )
+        else:
+            queryset = queryset.filter(
+                allocated_quantity_annotated__lt=F("total_quantity_annotated")
+            )
+    return queryset
+
+
+def _request_sort(queryset, params):
+    sort = params.get("sort", "-created")
+    order = REQUEST_SORTS.get(sort, "-created")
+    if isinstance(order, tuple):
+        return queryset.order_by(*order, "-pk")
+    return queryset.order_by(order, "-pk")
+
+
+def _request_summary_data(
+    loan_request, user, require_approval: bool = True, permissions: dict | None = None
+) -> dict:
+    loan = getattr(loan_request, "loan", None)
+    permissions = permissions or _list_permissions(user)
+    total_quantity = (
+        getattr(loan_request, "total_quantity_annotated", Decimal("0")) or Decimal("0")
+    )
+    allocated_quantity = (
+        getattr(loan_request, "allocated_quantity_annotated", Decimal("0"))
+        or Decimal("0")
+    )
+    item_count = int(getattr(loan_request, "item_count_annotated", 0) or 0)
+    status = loan_request.status
+    approve = permissions["can_approve"]
+    handout = permissions["can_handout"]
+    return {
+        "pk": loan_request.pk,
+        "reference": loan_request.reference,
+        "status": status,
+        "status_display": loan_request.get_status_display(),
+        "requester": loan_request.requester_display,
+        "requester_id": loan_request.requester_id,
+        "requester_name": loan_request.requester_display,
+        "requester_email": loan_request.requester_email_display,
+        "requester_phone": loan_request.requester_phone_display,
+        "requester_organization": loan_request.requester_organization,
+        "requester_identifier": loan_request.requester_identifier,
+        "public_token": str(loan_request.public_token),
+        "track_url": (
+            reverse(
+                "plugin:loan:public_request_detail",
+                args=[loan_request.public_token],
+            )
+            if loan_request.requester_id is None
+            else ""
+        ),
+        "request_url": _web_url(f"/plugin/loan/requests/{loan_request.pk}"),
+        "purpose": loan_request.purpose,
+        "project": loan_request.project,
+        "needed_by": _iso(loan_request.needed_by),
+        "return_by": _iso(loan_request.return_by),
+        "created": _iso(loan_request.created),
+        "decided_at": _iso(loan_request.decided_at),
+        "item_count": item_count,
+        "total_quantity": _num(total_quantity),
+        "allocated_quantity": _num(allocated_quantity),
+        "is_fully_allocated": total_quantity > 0
+        and allocated_quantity >= total_quantity,
+        "loan_pk": loan.pk if loan else None,
+        "loan_reference": loan.reference if loan else "",
+        "loan_status": loan.status if loan else "",
+        "loan_status_display": loan.get_status_display() if loan else "",
+        "loan_returned_at": _iso(loan.returned_at) if loan else None,
+        "can_approve": approve and status == "pending",
+        "can_handout": handout,
+        "can_cancel": status in REQUEST_OPEN_STATUSES,
+        "can_checkout": handout
+        and (status == "approved" or (status == "pending" and not require_approval)),
+    }
+
+
+def _loan_list_queryset(user):
+    """Loans with cheap aggregate annotations for list and CSV views."""
+    item_totals = (
+        LoanItem.objects.filter(loan=OuterRef("pk"))
+        .values("loan")
+        .annotate(
+            total=Sum("quantity"),
+            remaining=Sum(
+                ExpressionWrapper(
+                    F("quantity") - F("returned_quantity"),
+                    output_field=DecimalField(max_digits=15, decimal_places=5),
+                )
+            ),
+            count=Count("pk"),
+        )
+    )
+    return visible_loans(user).annotate(
+        item_count_annotated=Coalesce(
+            Subquery(item_totals.values("count")[:1]), Value(0)
+        ),
+        total_quantity_annotated=Coalesce(
+            Subquery(item_totals.values("total")[:1]),
+            Value(Decimal("0")),
+            output_field=DecimalField(max_digits=15, decimal_places=5),
+        ),
+        remaining_quantity_annotated=Coalesce(
+            Subquery(item_totals.values("remaining")[:1]),
+            Value(Decimal("0")),
+            output_field=DecimalField(max_digits=15, decimal_places=5),
+        ),
+    )
+
+
+def _filter_loan_list(queryset, params):
+    search = params.get("search", "").strip()
+    if search:
+        queryset = queryset.filter(
+            Q(reference__icontains=search)
+            | Q(borrower__username__icontains=search)
+            | Q(borrower__first_name__icontains=search)
+            | Q(borrower__last_name__icontains=search)
+            | Q(borrower__email__icontains=search)
+            | Q(borrower_name__icontains=search)
+            | Q(borrower_email__icontains=search)
+            | Q(borrower_phone__icontains=search)
+            | Q(notes__icontains=search)
+            | Q(request__reference__icontains=search)
+            | Q(items__part__name__icontains=search)
+            | Q(items__part__IPN__icontains=search)
+        ).distinct()
+
+    raw_status = params.get("status", "").strip()
+    if raw_status:
+        now = timezone.now()
+        due_soon_days = int(get_setting("DUE_SOON_DAYS", 2) or 2)
+        status_query = Q()
+        for token in raw_status.split(","):
+            token = token.strip()
+            if token == "open":
+                status_query |= Q(status__in=LOAN_OPEN_STATUSES)
+            elif token == "closed":
+                status_query |= Q(status__in=LOAN_CLOSED_STATUSES)
+            elif token == "overdue":
+                status_query |= Q(status__in=LOAN_OPEN_STATUSES, due_at__lt=now)
+            elif token == "due_soon":
+                status_query |= Q(
+                    status__in=LOAN_OPEN_STATUSES,
+                    due_at__gte=now,
+                    due_at__lte=now + timedelta(days=due_soon_days),
+                )
+            elif token:
+                status_query |= Q(status=token)
+        if status_query:
+            queryset = queryset.filter(status_query)
+    return queryset
+
+
+def _loan_sort(queryset, params):
+    sort = params.get("sort", "-issued_at")
+    order = LOAN_SORTS.get(sort, "-issued_at")
+    if isinstance(order, tuple):
+        return queryset.order_by(*order, "-pk")
+    return queryset.order_by(order, "-pk")
+
+
+def _loan_summary_data(loan, user, permissions: dict | None = None) -> dict:
+    permissions = permissions or _list_permissions(user)
+    handout = permissions["can_handout"]
+    total_quantity = (
+        getattr(loan, "total_quantity_annotated", Decimal("0")) or Decimal("0")
+    )
+    remaining_quantity = (
+        getattr(loan, "remaining_quantity_annotated", Decimal("0")) or Decimal("0")
+    )
+    item_count = int(getattr(loan, "item_count_annotated", 0) or 0)
+    return {
+        "pk": loan.pk,
+        "reference": loan.reference,
+        "status": loan.status,
+        "status_display": loan.get_status_display(),
+        "borrower": loan.borrower_display,
+        "borrower_id": loan.borrower_id,
+        "borrower_name": loan.borrower_display,
+        "borrower_email": loan.borrower_email_display,
+        "borrower_phone": loan.borrower_phone_display,
+        "issued_by": str(loan.issued_by) if loan.issued_by else "",
+        "issued_at": _iso(loan.issued_at),
+        "due_at": _iso(loan.due_at),
+        "returned_at": _iso(loan.returned_at),
+        "is_overdue": loan.is_overdue,
+        "days_overdue": loan.days_overdue,
+        "renewals": loan.renewals,
+        "notes": loan.notes,
+        "item_count": item_count,
+        "total_quantity": _num(total_quantity),
+        "remaining_quantity": _num(remaining_quantity),
+        "request_pk": loan.request_id,
+        "request_reference": loan.request.reference if loan.request else "",
+        "qr_url": reverse("plugin:loan:qr", args=[loan.pk]),
+        "handout_receipt_url": reverse(
+            "plugin:loan:receipt", args=[loan.pk]
+        )
+        + "?type=handout",
+        "return_receipt_url": reverse(
+            "plugin:loan:receipt", args=[loan.pk]
+        )
+        + "?type=return",
+        "can_return": handout and loan.is_open,
+        "can_renew": handout and loan.is_open,
+        "can_mark_lost": handout and loan.is_open,
+    }
+
+
+def _filter_event_list(queryset, params):
+    search = params.get("search", "").strip()
+    if search:
+        queryset = queryset.filter(
+            Q(notes__icontains=search)
+            | Q(actor__username__icontains=search)
+            | Q(actor__first_name__icontains=search)
+            | Q(actor__last_name__icontains=search)
+            | Q(loan__reference__icontains=search)
+            | Q(request__reference__icontains=search)
+        ).distinct()
+    event_type = params.get("event_type", "").strip()
+    if event_type:
+        queryset = queryset.filter(event_type=event_type)
+    return queryset
+
+
+def _filter_staff_list(queryset, params):
+    search = params.get("search", "").strip()
+    if search:
+        queryset = queryset.filter(
+            Q(user__username__icontains=search)
+            | Q(user__first_name__icontains=search)
+            | Q(user__last_name__icontains=search)
+            | Q(user__email__icontains=search)
+        )
+    role = params.get("role", "").strip()
+    if role:
+        queryset = queryset.filter(role=role)
+    active = params.get("active", "").strip().lower()
+    if active in {"1", "true", "yes"}:
+        queryset = queryset.filter(active=True)
+    elif active in {"0", "false", "no"}:
+        queryset = queryset.filter(active=False)
+    return queryset
+
+
 def _allocation_data(line) -> list[dict]:
     return [
         {
@@ -130,7 +533,25 @@ def _drf_error(exc: DjangoValidationError):
 
 
 def _request_data(request: LoanRequest, user) -> dict:
-    loan = Loan.objects.filter(request=request).first()
+    loan = getattr(request, "loan", None)
+    lines = list(request.lines.all())
+    availability = (
+        part_availability_bulk(
+            [line.part for line in lines], exclude_request=request
+        )
+        if lines
+        else {}
+    )
+    approve = can_approve(user)
+    handout = can_handout(user)
+    total_quantity = sum((line.quantity for line in lines), Decimal("0"))
+    allocated_by_line = {
+        line.pk: sum(
+            (allocation.quantity for allocation in line.allocations.all()),
+            Decimal("0"),
+        )
+        for line in lines
+    }
     return {
         "pk": request.pk,
         "reference": request.reference,
@@ -161,18 +582,21 @@ def _request_data(request: LoanRequest, user) -> dict:
         "decided_by": str(request.decided_by) if request.decided_by else "",
         "decided_at": _iso(request.decided_at),
         "created": _iso(request.created),
-        "item_count": request.item_count,
-        "total_quantity": _num(request.total_quantity),
-        "is_fully_allocated": request.is_fully_allocated,
+        "item_count": len(lines),
+        "total_quantity": _num(total_quantity),
+        "is_fully_allocated": all(
+            allocated_by_line.get(line.pk, Decimal("0")) >= line.quantity
+            for line in lines
+        ),
         "loan_pk": loan.pk if loan else None,
         "loan_reference": loan.reference if loan else "",
         "loan_status": loan.status if loan else "",
         "loan_status_display": loan.get_status_display() if loan else "",
         "loan_returned_at": _iso(loan.returned_at) if loan else None,
-        "can_approve": can_approve(user) and request.status == "pending",
-        "can_handout": can_handout(user),
+        "can_approve": approve and request.status == "pending",
+        "can_handout": handout,
         "can_cancel": request.status in {"pending", "approved", "partially_fulfilled"},
-        "can_checkout": can_handout(user)
+        "can_checkout": handout
         and (
             request.status == "approved"
             or (request.status == "pending" and not get_setting("REQUIRE_APPROVAL", True))
@@ -194,20 +618,38 @@ def _request_data(request: LoanRequest, user) -> dict:
                 "quantity": _num(line.quantity),
                 "notes": line.notes,
                 "allocations": _allocation_data(line),
-                "allocated_quantity": _num(line.allocated_quantity),
-                "unallocated_quantity": _num(line.unallocated_quantity),
-                "is_fully_allocated": line.is_fully_allocated,
+                "allocated_quantity": _num(
+                    allocated_by_line.get(line.pk, Decimal("0"))
+                ),
+                "unallocated_quantity": _num(
+                    max(
+                        line.quantity - allocated_by_line.get(line.pk, Decimal("0")),
+                        Decimal("0"),
+                    )
+                ),
+                "is_fully_allocated": allocated_by_line.get(
+                    line.pk, Decimal("0")
+                )
+                >= line.quantity,
                 "available_stock": _num(
-                    part_availability(line.part, exclude_request=request)["available"]
+                    availability.get(line.part_id, {}).get(
+                        "available", Decimal("0")
+                    )
                 ),
             }
-            for line in request.lines.all()
+            for line in lines
         ],
         "url": reverse("plugin:loan:request_detail", args=[request.pk]),
     }
 
 
 def _loan_data(loan: Loan, user, include_events: bool = False) -> dict:
+    handout = can_handout(user)
+    items = list(loan.items.all())
+    total_quantity = sum((item.quantity for item in items), Decimal("0"))
+    remaining_quantity = sum(
+        (item.remaining_quantity for item in items), Decimal("0")
+    )
     data = {
         "pk": loan.pk,
         "reference": loan.reference,
@@ -230,14 +672,14 @@ def _loan_data(loan: Loan, user, include_events: bool = False) -> dict:
         "days_overdue": loan.days_overdue,
         "renewals": loan.renewals,
         "notes": loan.notes,
-        "item_count": loan.item_count,
-        "total_quantity": _num(loan.total_quantity),
-        "remaining_quantity": _num(loan.remaining_quantity),
+        "item_count": len(items),
+        "total_quantity": _num(total_quantity),
+        "remaining_quantity": _num(remaining_quantity),
         "qr_url": reverse("plugin:loan:qr", args=[loan.pk]),
         "receipt_url": reverse("plugin:loan:receipt", args=[loan.pk]),
-        "can_return": can_handout(user) and loan.is_open,
-        "can_renew": can_handout(user) and loan.is_open,
-        "can_mark_lost": can_handout(user) and loan.is_open,
+        "can_return": handout and loan.is_open,
+        "can_renew": handout and loan.is_open,
+        "can_mark_lost": handout and loan.is_open,
         "items": [
             {
                 "pk": item.pk,
@@ -256,7 +698,7 @@ def _loan_data(loan: Loan, user, include_events: bool = False) -> dict:
                 "notes": item.return_notes,
                 "original_location": str(item.original_location) if item.original_location else "",
             }
-            for item in loan.items.all()
+            for item in items
         ],
     }
     if include_events:
@@ -558,11 +1000,31 @@ class RequestListCreateView(LoanAPIView):
     """List visible requests, or create a new request."""
 
     def get(self, request):
-        queryset = visible_requests(request.user)
-        status_filter = request.GET.get("status")
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        return Response({"results": [_request_data(req, request.user) for req in queryset[:200]]})
+        limit, offset = _page_params(request)
+        queryset = _request_sort(
+            _filter_request_list(
+                _request_list_queryset(request.user),
+                request.GET,
+            ),
+            request.GET,
+        )
+        total = queryset.count()
+        require_approval = bool(get_setting("REQUIRE_APPROVAL", True))
+        permissions = _list_permissions(request.user)
+        page = queryset[offset : offset + limit]
+        return Response(
+            {
+                "results": [
+                    _request_summary_data(
+                        item, request.user, require_approval, permissions
+                    )
+                    for item in page
+                ],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
 
     def post(self, request):
         if not can_request(request.user):
@@ -730,11 +1192,28 @@ class LoanListView(LoanAPIView):
     """List visible loans."""
 
     def get(self, request):
-        queryset = visible_loans(request.user)
-        status_filter = request.GET.get("status")
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        return Response({"results": [_loan_data(loan, request.user) for loan in queryset[:200]]})
+        limit, offset = _page_params(request)
+        queryset = _loan_sort(
+            _filter_loan_list(
+                _loan_list_queryset(request.user),
+                request.GET,
+            ),
+            request.GET,
+        )
+        total = queryset.count()
+        permissions = _list_permissions(request.user)
+        page = queryset[offset : offset + limit]
+        return Response(
+            {
+                "results": [
+                    _loan_summary_data(item, request.user, permissions)
+                    for item in page
+                ],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
 
 
 class LoanDetailView(LoanAPIView):
@@ -892,10 +1371,12 @@ class EventListView(LoanAPIView):
     def get(self, request):
         if not can_view_all(request.user):
             raise PermissionDenied("You do not have permission to view history")
-        queryset = visible_events(request.user)
-        event_type = request.GET.get("event_type", "").strip()
-        if event_type:
-            queryset = queryset.filter(event_type=event_type)
+        limit, offset = _page_params(request, default_limit=50)
+        queryset = _filter_event_list(
+            visible_events(request.user), request.GET
+        ).order_by("-created", "-pk")
+        total = queryset.count()
+        page = queryset[offset : offset + limit]
         return Response({
             "results": [
                 {
@@ -908,8 +1389,11 @@ class EventListView(LoanAPIView):
                     "loan_reference": event.loan.reference if event.loan else "",
                     "request_reference": event.request.reference if event.request else "",
                 }
-                for event in queryset[:300]
-            ]
+                for event in page
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
         })
 
 
@@ -998,7 +1482,15 @@ class StaffListCreateView(LoanAPIView):
     def get(self, request):
         if not can_manage_staff(request.user):
             raise PermissionDenied("You do not have permission to manage loan staff")
-        staff = LoanStaff.objects.select_related("user", "created_by").all()
+        limit, offset = _page_params(request, default_limit=50)
+        queryset = _filter_staff_list(
+            LoanStaff.objects.select_related("user", "created_by").order_by(
+                "user__username"
+            ),
+            request.GET,
+        )
+        total = queryset.count()
+        page = queryset[offset : offset + limit]
         return Response({
             "results": [
                 {
@@ -1011,8 +1503,11 @@ class StaffListCreateView(LoanAPIView):
                     "active": item.active,
                     "created_by": str(item.created_by) if item.created_by else "",
                 }
-                for item in staff
-            ]
+                for item in page
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
         })
 
     def post(self, request):
@@ -1133,7 +1628,13 @@ class ExportRequestsView(LoanAPIView):
             "Reference", "Requester", "Status", "Purpose", "Pickup", "Return",
             "Items", "Created", "Decided by", "Decision notes",
         ])
-        for item in visible_requests(request.user)[:5000]:
+        queryset = _request_sort(
+            _filter_request_list(
+                _request_list_queryset(request.user), request.GET
+            ),
+            request.GET,
+        )[:5000]
+        for item in queryset:
             writer.writerow([
                 _csv_safe(item.reference),
                 _csv_safe(item.requester_display),
@@ -1141,7 +1642,7 @@ class ExportRequestsView(LoanAPIView):
                 _csv_safe(item.purpose),
                 _csv_safe(item.needed_by),
                 _csv_safe(item.return_by),
-                _csv_safe(item.item_count),
+                _csv_safe(getattr(item, "item_count_annotated", 0)),
                 _csv_safe(item.created.isoformat() if item.created else ""),
                 _csv_safe(item.decided_by),
                 _csv_safe(item.decision_notes),
@@ -1161,7 +1662,13 @@ class ExportLoansView(LoanAPIView):
             "Reference", "Borrower", "Status", "Issued", "Due", "Returned",
             "Items", "Renewals", "Notes",
         ])
-        for loan in visible_loans(request.user)[:5000]:
+        queryset = _loan_sort(
+            _filter_loan_list(
+                _loan_list_queryset(request.user), request.GET
+            ),
+            request.GET,
+        )[:5000]
+        for loan in queryset:
             writer.writerow([
                 _csv_safe(loan.reference),
                 _csv_safe(loan.borrower_display),
@@ -1169,7 +1676,7 @@ class ExportLoansView(LoanAPIView):
                 _csv_safe(loan.issued_at.isoformat() if loan.issued_at else ""),
                 _csv_safe(loan.due_at.isoformat() if loan.due_at else ""),
                 _csv_safe(loan.returned_at.isoformat() if loan.returned_at else ""),
-                _csv_safe(loan.item_count),
+                _csv_safe(getattr(loan, "item_count_annotated", 0)),
                 _csv_safe(loan.renewals),
                 _csv_safe(loan.notes),
             ])

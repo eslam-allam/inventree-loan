@@ -131,9 +131,11 @@ to the dashboard widget list, and a **Loan Manager** spotlight action.
 - **Loans (navigation)** opens a native InvenTree page at
   `/web/plugin/loan/management`. It is rendered inside the normal InvenTree
   layout, so the header, navigation, theme, and user menu behave exactly like
-  the Stock or Parts pages. Signed-in requesters use the same page for their
-  requests and loans; the old server-rendered My Requests pages redirect here,
-  so there is only one version.
+  the Stock or Parts pages. Requests and loans use searchable, filterable,
+  sortable tables with pagination and CSV export; summary cards show pending,
+  approved, active and overdue counts. Signed-in requesters use the same page
+  for their requests and loans; the old server-rendered My Requests pages
+  redirect here, so there is only one version.
 - **Request details** (`/web/plugin/loan/requests/<pk>`) is a full native page,
   like a build-order detail page. It shows requester/contact details, purpose,
   dates, lines, signatures, stock allocations, part/stock links, approval and
@@ -146,7 +148,8 @@ to the dashboard widget list, and a **Loan Manager** spotlight action.
 The native console adapts to the signed-in user's loan role: requesters see
 their own requests and loans, while loan staff additionally see the handout,
 staff, setup, and audit-history tabs. Handout and return dialogs require the
-borrower's signature.
+borrower's signature. The Staff tab searches InvenTree users by name, username
+or email, so you do not need to know the exact username.
 
 ## Initial setup
 

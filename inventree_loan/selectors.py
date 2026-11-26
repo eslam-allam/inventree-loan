@@ -9,11 +9,12 @@ from .permissions import can_view_all
 
 
 def visible_requests(user) -> QuerySet[LoanRequest]:
-    """Return only requests the user is allowed to see."""
-    queryset = (
-        LoanRequest.objects.select_related("requester", "decided_by")
-        .prefetch_related("lines__part", "lines__stock_item", "lines__allocations__stock_item")
-    )
+    """Return only requests the user is allowed to see.
+
+    Keep this queryset light: list endpoints annotate the few aggregate fields
+    they need, while detail views add the related rows explicitly.
+    """
+    queryset = LoanRequest.objects.select_related("requester", "decided_by", "loan")
     if can_view_all(user):
         return queryset
     return queryset.filter(requester=user)
@@ -21,11 +22,8 @@ def visible_requests(user) -> QuerySet[LoanRequest]:
 
 def visible_loans(user) -> QuerySet[Loan]:
     """Return only loans the user is allowed to see."""
-    queryset = (
-        Loan.objects.select_related(
-            "borrower", "issued_by", "request", "checkout_location"
-        )
-        .prefetch_related("items__part", "items__stock_item", "items__original_location")
+    queryset = Loan.objects.select_related(
+        "borrower", "issued_by", "request", "request__requester", "checkout_location"
     )
     if can_view_all(user):
         return queryset
@@ -54,7 +52,12 @@ def request_with_lines(user, pk: int) -> LoanRequest | None:
     """Return a visible request with its lines preloaded."""
     return (
         visible_requests(user)
-        .prefetch_related("lines__part", "lines__stock_item", "lines__allocations__stock_item", "events")
+        .prefetch_related(
+            "lines__part",
+            "lines__stock_item",
+            "lines__allocations__stock_item__location",
+            "events",
+        )
         .filter(pk=pk)
         .first()
     )
