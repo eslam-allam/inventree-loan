@@ -8,13 +8,13 @@ from pathlib import Path
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import http_date
 
 from .config import get_native_management_url, get_native_request_url, get_setting
-from .models import Loan, LoanRequest
+from .models import Loan, LoanPickup, LoanRequest
 from .permissions import (
     can_handout,
     can_manage_staff,
@@ -29,6 +29,7 @@ from .selectors import (
     visible_loans,
     visible_requests,
 )
+from .services.barcode import generate_qr_svg_payload, pickup_payload
 from .services.requests import catalog_categories, catalog_part_count
 from .services.setup import is_configured
 from .utils import local_today
@@ -215,6 +216,40 @@ def public_request_receipt(request, token):
             "qr_url": reverse("plugin:loan:public_request_qr", args=[token]),
         },
     )
+
+
+@login_required
+def pickup_label(request, pk):
+    """Printable box/bag label with pickup and request QR codes."""
+    pickup = get_object_or_404(
+        LoanPickup.objects.select_related("request", "request__requester"),
+        pk=pk,
+    )
+    if not can_view_all(request.user):
+        raise PermissionDenied("You cannot view this pickup box")
+    return render(
+        request,
+        "inventree_loan/pickup_label.html",
+        {
+            "pickup": pickup,
+            "request_obj": pickup.request,
+            "qr_url": reverse("plugin:loan:pickup_qr", args=[pickup.pk]),
+        },
+    )
+
+
+@login_required
+def pickup_qr(request, pk):
+    """Return the QR SVG for a pickup box."""
+    pickup = get_object_or_404(LoanPickup, pk=pk)
+    if not can_view_all(request.user):
+        raise PermissionDenied("You cannot view this pickup box")
+    response = HttpResponse(
+        generate_qr_svg_payload(pickup_payload(pickup)),
+        content_type="image/svg+xml",
+    )
+    response["Cache-Control"] = "private, max-age=3600"
+    return response
 
 
 @login_required

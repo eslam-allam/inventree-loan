@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -113,6 +114,68 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         self.assertEqual(self.request.status, LoanRequestStatus.APPROVED)
         self.assertEqual(self.request.decision_notes, "Approved for demo")
         self.assertEqual(self.request.decided_by, self.approver)
+
+    def test_ready_for_pickup_flow(self):
+        self.client.force_authenticate(user=self.approver)
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/approve/",
+            {"notes": "Approved"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.pickup.status, "packing")
+
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/ready/",
+            {"name": "Blue box"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/allocate/",
+            {"auto": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["is_fully_allocated"])
+
+        with patch(
+            "inventree_loan.services.pickups.notify_request_ready"
+        ) as notify_ready:
+            response = self.client.post(
+                f"/plugin/loan/api/requests/{self.request.pk}/ready/",
+                {"name": "Blue box", "notes": "Top shelf"},
+                format="json",
+            )
+        self.assertTrue(notify_ready.called)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "ready_for_pickup")
+        pickup = response.data["pickup"]
+        self.assertEqual(pickup["name"], "Blue box")
+        self.assertEqual(pickup["status"], "ready")
+        self.assertTrue(pickup["reference"].startswith("BOX-"))
+
+        self.client.force_login(self.approver)
+        label = self.client.get(pickup["label_url"])
+        self.assertEqual(label.status_code, 200)
+        self.assertContains(label, self.request.reference)
+        self.assertContains(label, pickup["reference"])
+
+        qr = self.client.get(pickup["qr_url"])
+        self.assertEqual(qr.status_code, 200)
+        self.assertEqual(qr["Content-Type"], "image/svg+xml")
+
+        from inventree_loan.models import LoanPickup
+        from inventree_loan.services.barcode import pickup_payload, resolve_barcode
+
+        scanned = resolve_barcode(
+            self.approver,
+            pickup_payload(LoanPickup.objects.get(pk=pickup["pk"])),
+        )
+        self.assertEqual(scanned["type"], "pickup")
+        self.assertEqual(scanned["data"]["request_pk"], self.request.pk)
 
     def test_anonymous_request_tracking_and_receipt(self):
         created = create_request(

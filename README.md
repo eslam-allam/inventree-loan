@@ -8,13 +8,17 @@ a role-aware interface for requesters and loan desk staff.
 ## Features
 
 - A **public request catalogue** that works without an InvenTree account.
-- Browse loanable parts by category or search, open part details, and inspect
-  available stock items before adding them to a request.
+- Browse loanable parts by category or search, open part details, and request a
+  part and quantity. Specific stock units are assigned by the loan desk.
 - Anonymous requesters enter their own name, email, phone, organisation and ID,
   so no InvenTree user account is required.
 - Requesters sign at submission. The loan desk captures a second signature at
   handout, and a third at return.
 - Approvers can review, approve, and reject requests.
+- Approved requests can be packed into a **pickup box or bag** with its own
+  reference and QR code, then moved to **Ready for pickup**. The box label is
+  printable and shows the box reference, request reference, requester, contents
+  and a scannable QR code.
 - The admin console has a **View** action for every request, showing requester
   details, purpose, dates, requested items, notes and the submitted signature
   before approval or handout.
@@ -32,11 +36,13 @@ a role-aware interface for requesters and loan desk staff.
   in an append-only audit timeline.
 - Every anonymous request gets a secret tracking link showing its status, loan
   progress, and signatures.
-- QR codes identify loans; printed receipts include the QR, due date, and
-  captured signatures.
+- QR codes identify loans and pickup boxes; printed receipts and box labels
+  include the QR, references, due date and captured signatures where relevant.
 - Barcode scanning supports USB/keyboard scanners and camera scanning where the
   browser exposes `BarcodeDetector`.
-- Optional email notifications; in-app notifications are always available.
+- Optional email notifications for submitted, approved/rejected, ready for
+  pickup, handout, partial return and returned events; in-app notifications are
+  always available.
 - Scheduled due-soon and overdue reminders.
 - CSV export for requests and loans.
 - Responsive, accessible interface with light and dark mode support.
@@ -242,11 +248,29 @@ stock allocations. **Approve** or **Reject**, optionally adding a decision
 note. Anonymous requesters receive the decision at the email address they
 provided, and can follow the request through their tracking link.
 
+### Pack and mark ready for pickup
+
+1. Open an approved request. A pickup box reference is created automatically
+   when the request is approved.
+2. Allocate all requested stock. The ready action is disabled while any line is
+   still unallocated.
+3. Select **Mark ready for pickup**, optionally enter a box/bag name (for
+   example `Shelf A – blue box`) and packing notes.
+4. The request moves to **Ready for pickup** and the requester receives an
+   in-app notification and email when email is enabled.
+5. Select **Print box label** to print an A6 label with the box QR, box
+   reference, request reference, requester, contents and pickup date. Attach it
+   to the box or bag.
+
+The box reference and name are shown on the request page. The pickup box is
+marked **Collected** automatically when the request is handed out.
+
 ### Hand out
 
 1. Open the **Handout** tab in the Loan Manager console, or open the request
    detail page.
-2. Select **Hand out** on an approved request.
+2. Scan the pickup box QR to open the request directly, or select **Hand out**
+   on an approved or ready-for-pickup request.
 3. Review the request details and have the borrower sign in the signature box.
 4. Confirm the handout.
 5. Print the **handout receipt** or show the loan QR. The receipt QR code opens

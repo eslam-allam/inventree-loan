@@ -106,7 +106,7 @@ def can_edit_request(user, request) -> bool:
 
 
 def can_cancel_request(user, request) -> bool:
-    """The requester may cancel while pending/approved; managers may always cancel."""
+    """The requester may cancel while open; managers may always cancel."""
     from .models import LoanRequestStatus
 
     if not user or not user.is_authenticated:
@@ -115,11 +115,13 @@ def can_cancel_request(user, request) -> bool:
         return request.status in {
             LoanRequestStatus.PENDING,
             LoanRequestStatus.APPROVED,
+            LoanRequestStatus.READY_FOR_PICKUP,
             LoanRequestStatus.PARTIALLY_FULFILLED,
         }
     return request.requester_id == user.id and request.status in {
         LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.READY_FOR_PICKUP,
     }
 
 

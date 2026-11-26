@@ -101,6 +101,7 @@
         const map = {
             pending: ['loan-badge-pending', 'fa-clock'],
             approved: ['loan-badge-approved', 'fa-circle-check'],
+            ready_for_pickup: ['loan-badge-info', 'fa-circle-check'],
             rejected: ['loan-badge-danger', 'fa-circle-xmark'],
             cancelled: ['loan-badge-muted', 'fa-ban'],
             fulfilled: ['loan-badge-success', 'fa-check'],

@@ -139,6 +139,24 @@ def notify_request_decided(request):
     )
 
 
+def notify_request_ready(request, pickup=None):
+    """Notify the requester that the packed items are ready to collect."""
+    name = f"Loan request {request.reference} is ready for pickup"
+    parts = ["Your items are packed and ready to collect."]
+    if pickup is not None:
+        parts.append(
+            f"Pickup box: {pickup.display_name} ({pickup.reference})."
+        )
+    if request.needed_by:
+        parts.append(f"Pickup date: {request.needed_by:%Y-%m-%d}.")
+    message = " ".join(parts)
+    link = request_link(request)
+    notify_user(request.requester, name, message, target=request, link=link)
+    send_email_address(
+        request.requester_email_display, name, f"{message}\n\n{link}"
+    )
+
+
 def notify_loan_issued(loan):
     """Notify the borrower that items have been handed out."""
     name = f"Loan {loan.reference} issued"
@@ -152,6 +170,18 @@ def notify_loan_returned(loan):
     """Notify the borrower that the loan is closed."""
     name = f"Loan {loan.reference} returned"
     message = "All items have been returned. Thank you."
+    link = loan_link(loan)
+    notify_user(loan.borrower, name, message, target=loan, link=link)
+    send_email_address(loan.borrower_email_display, name, f"{message}\n\n{link}")
+
+
+def notify_loan_partially_returned(loan):
+    """Notify the borrower that part of a loan has been returned."""
+    name = f"Loan {loan.reference} partially returned"
+    message = (
+        f"Your return was recorded. {loan.remaining_quantity} unit(s) remain "
+        f"on loan until {loan.due_at:%Y-%m-%d}."
+    )
     link = loan_link(loan)
     notify_user(loan.borrower, name, message, target=loan, link=link)
     send_email_address(loan.borrower_email_display, name, f"{message}\n\n{link}")

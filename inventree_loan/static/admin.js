@@ -15,6 +15,10 @@ const { useCallback, useEffect, useMemo, useRef, useState } = React;
 const STATUS_COLORS = {
     pending: 'yellow',
     approved: 'blue',
+    ready_for_pickup: 'teal',
+    packing: 'gray',
+    ready: 'teal',
+    collected: 'green',
     rejected: 'red',
     cancelled: 'gray',
     fulfilled: 'green',
@@ -264,6 +268,7 @@ function StatCard({ label, value, color }) {
 const REQUEST_STATUS_OPTIONS = [
     { value: 'pending', label: 'Pending' },
     { value: 'approved', label: 'Approved' },
+    { value: 'ready_for_pickup', label: 'Ready for pickup' },
     { value: 'partially_fulfilled', label: 'Partially fulfilled' },
     { value: 'fulfilled', label: 'Fulfilled' },
     { value: 'rejected', label: 'Rejected' },
@@ -310,6 +315,8 @@ const LOAN_SORT_OPTIONS = [
 const EVENT_TYPE_OPTIONS = [
     { value: 'requested', label: 'Request submitted' },
     { value: 'approved', label: 'Request approved' },
+    { value: 'ready_for_pickup', label: 'Ready for pickup' },
+    { value: 'pickup_collected', label: 'Pickup collected' },
     { value: 'rejected', label: 'Request rejected' },
     { value: 'cancelled', label: 'Request cancelled' },
     { value: 'issued', label: 'Loan issued' },
@@ -660,6 +667,11 @@ function RequestDetailPage({ context, requestId }) {
     const [signature, setSignature] = useState('');
     const [actionError, setActionError] = useState('');
     const [actionBusy, setActionBusy] = useState(false);
+    const [readyOpen, setReadyOpen] = useState(false);
+    const [pickupName, setPickupName] = useState('');
+    const [readyNotes, setReadyNotes] = useState('');
+    const [readyError, setReadyError] = useState('');
+    const [readyBusy, setReadyBusy] = useState(false);
 
     useEffect(() => {
         let active = true;
@@ -812,6 +824,28 @@ function RequestDetailPage({ context, requestId }) {
             .finally(() => setActionBusy(false));
     };
 
+    const openReady = () => {
+        setPickupName(detail?.pickup?.name || '');
+        setReadyNotes('');
+        setReadyError('');
+        setReadyOpen(true);
+    };
+
+    const submitReady = () => {
+        setReadyBusy(true);
+        setReadyError('');
+        api.post(`/plugin/loan/api/requests/${requestId}/ready/`, {
+            name: pickupName,
+            notes: readyNotes
+        })
+            .then((response) => {
+                setDetail(response.data);
+                setReadyOpen(false);
+            })
+            .catch((err) => setReadyError(errorText(err)))
+            .finally(() => setReadyBusy(false));
+    };
+
     const requestReceipt = detail?.public_token
         ? `/plugin/loan/track/${detail.public_token}/receipt/`
         : null;
@@ -871,6 +905,32 @@ function RequestDetailPage({ context, requestId }) {
                     { gap: 'xs' },
                     detail.can_approve ? h(M.Button, { size: 'xs', color: 'green', onClick: () => setAction('approve') }, 'Approve') : null,
                     detail.can_approve ? h(M.Button, { size: 'xs', color: 'red', variant: 'light', onClick: () => setAction('reject') }, 'Reject') : null,
+                    detail.can_mark_ready
+                        ? h(
+                              M.Button,
+                              {
+                                  size: 'xs',
+                                  variant: detail.status === 'ready_for_pickup' ? 'light' : 'filled',
+                                  onClick: openReady
+                              },
+                              detail.status === 'ready_for_pickup'
+                                  ? 'Edit pickup box'
+                                  : 'Mark ready for pickup'
+                          )
+                        : null,
+                    detail.pickup
+                        ? h(
+                              M.Button,
+                              {
+                                  size: 'xs',
+                                  variant: 'default',
+                                  component: 'a',
+                                  href: detail.pickup.label_url,
+                                  target: '_blank'
+                              },
+                              'Print box label'
+                          )
+                        : null,
                     detail.can_checkout ? h(M.Button, { size: 'xs', onClick: () => setAction('checkout') }, 'Hand out') : null
                 )
             ),
@@ -884,6 +944,64 @@ function RequestDetailPage({ context, requestId }) {
             ),
             detail.notes ? h(M.Text, { size: 'sm', c: 'dimmed', mt: 'xs' }, detail.notes) : null
         ),
+        detail.pickup
+            ? h(
+                  M.Paper,
+                  { withBorder: true, p: 'md' },
+                  h(
+                      M.Group,
+                      { justify: 'space-between', align: 'flex-start', wrap: 'wrap' },
+                      h(
+                          M.Stack,
+                          { gap: 4 },
+                          h(
+                              M.Text,
+                              { size: 'xs', c: 'dimmed', tt: 'uppercase', fw: 700 },
+                              'Pickup box'
+                          ),
+                          h(M.Text, { size: 'lg', fw: 700 }, detail.pickup.display_name),
+                          h(
+                              M.Group,
+                              { gap: 'xs' },
+                              h(M.Code, null, detail.pickup.reference),
+                              h(StatusBadge, {
+                                  status: detail.pickup.status,
+                                  label: detail.pickup.status_display
+                              })
+                          )
+                      ),
+                      h(
+                          M.Group,
+                          { gap: 'md', align: 'center' },
+                          h(M.Image, {
+                              src: detail.pickup.qr_url,
+                              alt: 'Pickup box QR code',
+                              w: 96,
+                              h: 96
+                          }),
+                          h(
+                              M.Stack,
+                              { gap: 4 },
+                              h(
+                                  M.Button,
+                                  {
+                                      size: 'xs',
+                                      component: 'a',
+                                      href: detail.pickup.label_url,
+                                      target: '_blank'
+                                  },
+                                  'Print box label'
+                              ),
+                              h(
+                                  M.Text,
+                                  { size: 'xs', c: 'dimmed', maw: 180 },
+                                  'Attach this label to the box or bag.'
+                              )
+                          )
+                      )
+                  )
+              )
+            : null,
         h(
             M.Paper,
             { withBorder: true, p: 'md' },
@@ -1011,6 +1129,65 @@ function RequestDetailPage({ context, requestId }) {
                   h(M.Group, { gap: 6, mt: 'xs', wrap: 'wrap' }, handoutReceipt ? h(M.Anchor, { href: handoutReceipt, target: '_blank' }, 'Print handout receipt') : null, returnReceipt ? h(M.Anchor, { href: returnReceipt, target: '_blank' }, 'Print return receipt') : null)
               )
             : null,
+        h(
+            M.Modal,
+            {
+                opened: readyOpen,
+                onClose: () => setReadyOpen(false),
+                title: 'Ready for pickup',
+                centered: true
+            },
+            h(
+                M.Stack,
+                { gap: 'sm' },
+                h(
+                    M.Text,
+                    { size: 'sm', c: 'dimmed' },
+                    'Put every requested item in the box or bag, then print the box label. All lines must be fully allocated first.'
+                ),
+                detail?.is_fully_allocated
+                    ? null
+                    : h(
+                          M.Alert,
+                          { color: 'orange' },
+                          'This request still has unallocated items. Use Auto allocate or Allocate on each line first.'
+                      ),
+                h(M.TextInput, {
+                    label: 'Box / bag name (optional)',
+                    placeholder: 'e.g. Shelf A – blue box',
+                    value: pickupName,
+                    onChange: (event) => setPickupName(event.currentTarget.value)
+                }),
+                detail?.pickup
+                    ? h(
+                          M.Text,
+                          { size: 'sm', c: 'dimmed' },
+                          `Reference: ${detail.pickup.reference}`
+                      )
+                    : null,
+                h(M.Textarea, {
+                    label: 'Packing notes',
+                    minRows: 2,
+                    value: readyNotes,
+                    onChange: (event) => setReadyNotes(event.currentTarget.value)
+                }),
+                h(ErrorAlert, { error: readyError }),
+                h(
+                    M.Group,
+                    { justify: 'flex-end' },
+                    h(M.Button, { variant: 'default', onClick: () => setReadyOpen(false) }, 'Cancel'),
+                    h(
+                        M.Button,
+                        {
+                            loading: readyBusy,
+                            disabled: !detail?.is_fully_allocated,
+                            onClick: submitReady
+                        },
+                        detail?.status === 'ready_for_pickup' ? 'Update box' : 'Mark ready'
+                    )
+                )
+            )
+        ),
         h(
             M.Modal,
             { opened: Boolean(manualLine), onClose: () => setManualLine(null), title: manualLine ? `Allocate ${manualLine.part_name}` : 'Allocate stock', size: 'lg', centered: true },
@@ -1182,7 +1359,7 @@ function RequestsPanel({ context, onDataChanged }) {
                 setSearch(value);
                 resetPage();
             },
-            placeholder: 'Search reference, requester, part, purpose…',
+            placeholder: 'Search reference, box, requester, part…',
             filters: [
                 {
                     placeholder: 'All statuses',
@@ -1300,6 +1477,13 @@ function RequestsPanel({ context, onDataChanged }) {
                                                 },
                                                 request.reference
                                             ),
+                                            request.pickup
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      `Box ${request.pickup.reference}`
+                                                  )
+                                                : null,
                                             request.loan_reference
                                                 ? h(
                                                       M.Text,
@@ -2275,9 +2459,11 @@ function HandoutPanel({ context, onDataChanged }) {
     const [result, setResult] = useState(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [handoutId, setHandoutId] = useState(null);
+    const [scanValue, setScanValue] = useState('');
+    const [scanBusy, setScanBusy] = useState(false);
     const debouncedSearch = useDebounced(search);
     const query = buildQuery({
-        status: 'approved',
+        status: 'approved,ready_for_pickup',
         search: debouncedSearch.trim(),
         allocation,
         sort,
@@ -2295,6 +2481,39 @@ function HandoutPanel({ context, onDataChanged }) {
     const toggleSort = (field) => {
         setSort((current) => (current === `-${field}` ? field : `-${field}`));
         resetPage();
+    };
+
+    const scanPickup = (barcode) => {
+        const value = (barcode || '').trim();
+        if (!value) return;
+        setScanBusy(true);
+        setError('');
+        api.post('/plugin/loan/api/scan/', { barcode: value })
+            .then((response) => {
+                const found = response.data || {};
+                if (!found.success) {
+                    setError(found.error || 'No matching pickup box found.');
+                    return;
+                }
+                if (found.type !== 'pickup') {
+                    setError('Scan a pickup box QR code.');
+                    return;
+                }
+                if (
+                    !['approved', 'ready_for_pickup'].includes(
+                        found.data.request_status
+                    )
+                ) {
+                    setError(
+                        `Request ${found.data.request_reference} is not ready to hand out.`
+                    );
+                    return;
+                }
+                setScanValue('');
+                setHandoutId(found.data.request_pk);
+            })
+            .catch((err) => setError(errorText(err)))
+            .finally(() => setScanBusy(false));
     };
 
     const handout = (requestId, signature) => {
@@ -2331,6 +2550,33 @@ function HandoutPanel({ context, onDataChanged }) {
                 'Create a request'
             )
         ),
+        h(
+            M.Paper,
+            { withBorder: true, p: 'sm' },
+            h(
+                M.Group,
+                { align: 'flex-end', wrap: 'wrap' },
+                h(M.TextInput, {
+                    label: 'Scan pickup box',
+                    placeholder: 'Scan the box QR code to open the handout',
+                    value: scanValue,
+                    onChange: (event) => setScanValue(event.currentTarget.value),
+                    onKeyDown: (event) => {
+                        if (event.key === 'Enter') {
+                            event.preventDefault();
+                            scanPickup(scanValue);
+                        }
+                    },
+                    leftSection: h(M.Text, { size: 'sm', c: 'dimmed' }, '⌕'),
+                    style: { flex: '1 1 360px' }
+                }),
+                h(
+                    M.Button,
+                    { loading: scanBusy, onClick: () => scanPickup(scanValue) },
+                    'Open pickup'
+                )
+            )
+        ),
         result
             ? h(
                   M.Alert,
@@ -2356,7 +2602,7 @@ function HandoutPanel({ context, onDataChanged }) {
                 setSearch(value);
                 resetPage();
             },
-            placeholder: 'Search approved requests…',
+            placeholder: 'Search approved or ready requests…',
             filters: [
                 {
                     placeholder: 'Any allocation',
@@ -2387,8 +2633,8 @@ function HandoutPanel({ context, onDataChanged }) {
             ? h(EmptyState, {
                   label: filterLabel(
                       hasFilters,
-                      'No approved requests are waiting for handout.',
-                      'No approved requests match these filters.'
+                      'No approved or ready requests are waiting for handout.',
+                      'No approved or ready requests match these filters.'
                   )
               })
             : requests
@@ -2464,6 +2710,13 @@ function HandoutPanel({ context, onDataChanged }) {
                                                 },
                                                 request.reference
                                             ),
+                                            request.pickup
+                                                ? h(
+                                                      M.Text,
+                                                      { size: 'xs', c: 'dimmed' },
+                                                      `Box ${request.pickup.reference}`
+                                                  )
+                                                : null,
                                             request.requester_organization
                                                 ? h(
                                                       M.Text,
@@ -3185,7 +3438,7 @@ function AdminConsole({ context }) {
         access
             ? h(
                   M.SimpleGrid,
-                  { cols: { base: 2, sm: 4 }, spacing: 'sm' },
+                  { cols: { base: 2, sm: 5 }, spacing: 'sm' },
                   h(StatCard, {
                       label: 'Pending requests',
                       value: access.pending_requests,
@@ -3195,6 +3448,11 @@ function AdminConsole({ context }) {
                       label: 'Approved',
                       value: access.approved_requests,
                       color: 'blue.6'
+                  }),
+                  h(StatCard, {
+                      label: 'Ready for pickup',
+                      value: access.ready_for_pickup_requests,
+                      color: 'teal.6'
                   }),
                   h(StatCard, {
                       label: 'On loan',

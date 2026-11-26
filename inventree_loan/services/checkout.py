@@ -224,8 +224,13 @@ def checkout_request(
     if request.status == LoanRequestStatus.PENDING:
         if require_approval and not allow_pending:
             raise ValidationError(_("This request has not been approved yet"))
-    elif request.status != LoanRequestStatus.APPROVED:
-        raise ValidationError(_("Only pending or approved requests can be issued"))
+    elif request.status not in {
+        LoanRequestStatus.APPROVED,
+        LoanRequestStatus.READY_FOR_PICKUP,
+    }:
+        raise ValidationError(
+            _("Only pending, approved or ready-for-pickup requests can be issued")
+        )
 
     if request.requester_id and not request.requester.is_active:
         raise ValidationError(_("The requester's account is inactive"))
@@ -335,6 +340,10 @@ def checkout_request(
     request.save(
         update_fields=["status", "decided_by", "decided_at", "updated"]
     )
+
+    from .pickups import collect_pickup
+
+    collect_pickup(request, actor)
 
     LoanEvent.record(
         request=request,

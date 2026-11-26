@@ -14,7 +14,9 @@ def visible_requests(user) -> QuerySet[LoanRequest]:
     Keep this queryset light: list endpoints annotate the few aggregate fields
     they need, while detail views add the related rows explicitly.
     """
-    queryset = LoanRequest.objects.select_related("requester", "decided_by", "loan")
+    queryset = LoanRequest.objects.select_related(
+        "requester", "decided_by", "loan", "pickup"
+    )
     if can_view_all(user):
         return queryset
     return queryset.filter(requester=user)

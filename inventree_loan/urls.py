@@ -87,6 +87,16 @@ urlpatterns = [
         _function_view("inventree_loan.views", "receipt"),
         name="receipt",
     ),
+    path(
+        "pickups/<int:pk>/label/",
+        _function_view("inventree_loan.views", "pickup_label"),
+        name="pickup_label",
+    ),
+    path(
+        "pickups/<int:pk>/qr.svg",
+        _function_view("inventree_loan.views", "pickup_qr"),
+        name="pickup_qr",
+    ),
     path("checkout/", _function_view("inventree_loan.views", "checkout"), name="checkout"),
     path("return/", _function_view("inventree_loan.views", "return_page"), name="return"),
     path("history/", _function_view("inventree_loan.views", "history"), name="history"),
@@ -163,6 +173,11 @@ urlpatterns = [
         "api/requests/<int:pk>/cancel/",
         _class_view("inventree_loan.api.views", "RequestCancelView"),
         name="api_request_cancel",
+    ),
+    path(
+        "api/requests/<int:pk>/ready/",
+        _class_view("inventree_loan.api.views", "RequestReadyView"),
+        name="api_request_ready",
     ),
     path(
         "api/requests/<int:pk>/allocate/",

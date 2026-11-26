@@ -77,6 +77,7 @@ def loan_allocated_quantity(stock_item, exclude_request=None) -> Decimal:
         line__request__status__in=[
             LoanRequestStatus.PENDING,
             LoanRequestStatus.APPROVED,
+            LoanRequestStatus.READY_FOR_PICKUP,
             LoanRequestStatus.PARTIALLY_FULFILLED,
         ],
     )
@@ -157,6 +158,7 @@ def stock_item_available_bulk(items, exclude_request=None) -> dict[int, Decimal]
             line__request__status__in=[
                 LoanRequestStatus.PENDING,
                 LoanRequestStatus.APPROVED,
+                LoanRequestStatus.READY_FOR_PICKUP,
                 LoanRequestStatus.PARTIALLY_FULFILLED,
             ],
         )
@@ -780,6 +782,10 @@ def approve_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest
     request.decision_notes = (notes or "").strip()
     request.save(update_fields=["status", "decided_by", "decided_at", "decision_notes", "updated"])
 
+    from .pickups import ensure_pickup
+
+    ensure_pickup(request, actor)
+
     LoanEvent.record(
         request=request,
         event_type=LoanEventType.APPROVED,
@@ -810,6 +816,10 @@ def reject_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
     request.decided_at = timezone.now()
     request.decision_notes = (notes or "").strip()
     request.save(update_fields=["status", "decided_by", "decided_at", "decision_notes", "updated"])
+
+    from .pickups import cancel_pickup
+
+    cancel_pickup(request, actor)
 
     LoanEvent.record(
         request=request,
@@ -845,6 +855,10 @@ def cancel_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
     request.decided_at = timezone.now()
     request.decision_notes = (notes or "").strip()
     request.save(update_fields=["status", "decided_by", "decided_at", "decision_notes", "updated"])
+
+    from .pickups import cancel_pickup
+
+    cancel_pickup(request, actor)
 
     LoanEvent.record(
         request=request,

@@ -1,0 +1,67 @@
+{% load static i18n %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% trans "Pickup box" %} {{ pickup.reference }}</title>
+    <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
+    <style>
+        @page { size: A6 portrait; margin: 8mm; }
+    </style>
+</head>
+<body class="loan-receipt-body">
+<div class="loan-receipt-actions">
+    <button class="loan-btn loan-btn-primary" type="button" onclick="window.print()">{% trans "Print box label" %}</button>
+    <a class="loan-btn" href="{% url 'plugin:loan:request_detail' request_obj.pk %}">{% trans "Back to request" %}</a>
+</div>
+
+<main class="loan-pickup-label">
+    <header class="loan-pickup-label-head">
+        <div>
+            <p class="loan-eyebrow">{% trans "InvenTree Loan Manager" %}</p>
+            <h1>{% trans "Pickup box" %}</h1>
+            <p class="loan-pickup-ref">{{ pickup.reference }}</p>
+            {% if pickup.name %}<p class="loan-pickup-name">{{ pickup.name }}</p>{% endif %}
+        </div>
+        <img class="loan-pickup-qr" src="{{ qr_url }}" alt="{% trans 'Pickup box QR code' %}" width="176" height="176">
+    </header>
+
+    <section class="loan-pickup-request">
+        <p>{% trans "Request" %}</p>
+        <strong>{{ request_obj.reference }}</strong>
+        <p>{{ request_obj.requester_display }}</p>
+        {% if request_obj.requester_organization %}<p>{{ request_obj.requester_organization }}</p>{% endif %}
+    </section>
+
+    <section class="loan-pickup-meta">
+        <div>
+            <span>{% trans "Items" %}</span>
+            <strong>{{ request_obj.item_count }} line{{ request_obj.item_count|pluralize }} · {{ request_obj.total_quantity|floatformat:"-5" }} unit{{ request_obj.total_quantity|pluralize }}</strong>
+        </div>
+        <div>
+            <span>{% trans "Pickup date" %}</span>
+            <strong>{{ request_obj.needed_by|date:"M j, Y"|default:"—" }}</strong>
+        </div>
+        <div>
+            <span>{% trans "Status" %}</span>
+            <strong>{{ pickup.get_status_display }}</strong>
+        </div>
+    </section>
+
+    <section class="loan-pickup-contents">
+        <h2>{% trans "Contents" %}</h2>
+        <ul>
+            {% for line in request_obj.lines.all %}
+                <li><span>{{ line.part.name }}</span><strong>× {{ line.quantity|floatformat:"-5" }}</strong></li>
+            {% endfor %}
+        </ul>
+    </section>
+
+    <footer class="loan-pickup-label-foot">
+        <p>{% trans "Scan this code at the loan desk to open the request and record the handout." %}</p>
+        <p>{{ pickup.reference }} · {{ request_obj.reference }}</p>
+    </footer>
+</main>
+</body>
+</html>

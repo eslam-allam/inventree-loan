@@ -9,7 +9,7 @@ import uuid
 from django.utils.translation import gettext_lazy as _
 
 from ..config import get_setting
-from ..models import Loan, LoanItem
+from ..models import Loan, LoanItem, LoanPickup
 from ..permissions import can_view_all, can_view_loan
 
 
@@ -31,6 +31,39 @@ def parse_loan_token(barcode: str):
         payload = json.loads(value)
         if isinstance(payload, dict):
             value = payload.get("inventree_loan") or payload.get("loan") or value
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def pickup_payload(pickup: LoanPickup) -> str:
+    """Return the JSON payload encoded in a pickup box QR code."""
+    return json.dumps(
+        {"inventree_loan_pickup": str(pickup.token)}, separators=(",", ":")
+    )
+
+
+def parse_pickup_token(barcode: str):
+    """Extract a pickup UUID from a box QR payload, or return None."""
+    if not barcode:
+        return None
+    value = str(barcode).strip()
+    prefix = (get_setting("PICKUP_QR_PREFIX", "LOANPICK:") or "LOANPICK:").strip()
+    if prefix and value.startswith(prefix):
+        value = value[len(prefix):].strip()
+
+    try:
+        payload = json.loads(value)
+        if isinstance(payload, dict):
+            value = (
+                payload.get("inventree_loan_pickup")
+                or payload.get("pickup")
+                or value
+            )
     except (json.JSONDecodeError, TypeError):
         pass
 
@@ -92,6 +125,40 @@ def resolve_barcode(user, barcode: str) -> dict:
     barcode = (barcode or "").strip()
     if not barcode:
         return {"success": False, "error": str(_("Empty barcode"))}
+
+    pickup_token = parse_pickup_token(barcode)
+    if pickup_token:
+        pickup = (
+            LoanPickup.objects.select_related(
+                "request", "request__requester"
+            )
+            .filter(token=pickup_token)
+            .first()
+        )
+        if pickup is None:
+            return {"success": False, "error": str(_("Pickup box QR code not found"))}
+        if not can_view_all(user):
+            return {
+                "success": False,
+                "error": str(_("You cannot view this pickup box")),
+            }
+        request = pickup.request
+        return {
+            "success": True,
+            "type": "pickup",
+            "data": {
+                "pk": pickup.pk,
+                "reference": pickup.reference,
+                "name": pickup.display_name,
+                "status": pickup.status,
+                "status_text": pickup.get_status_display(),
+                "request_pk": request.pk,
+                "request_reference": request.reference,
+                "request_status": request.status,
+                "requester": request.requester_display,
+                "item_count": request.item_count,
+            },
+        }
 
     token = parse_loan_token(barcode)
     if token:

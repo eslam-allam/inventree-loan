@@ -71,6 +71,7 @@ def auto_allocate_request(request: LoanRequest, actor) -> LoanRequest:
     if request.status not in {
         LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.READY_FOR_PICKUP,
         LoanRequestStatus.PARTIALLY_FULFILLED,
     }:
         raise ValidationError(_("This request can no longer be allocated"))
@@ -143,6 +144,7 @@ def add_allocation(
     if request.status not in {
         LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.READY_FOR_PICKUP,
         LoanRequestStatus.PARTIALLY_FULFILLED,
     }:
         raise ValidationError(_("This request can no longer be allocated"))
@@ -232,6 +234,7 @@ def remove_allocation(request: LoanRequest, actor, allocation_id: int) -> None:
     if request.status not in {
         LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.READY_FOR_PICKUP,
         LoanRequestStatus.PARTIALLY_FULFILLED,
     }:
         raise ValidationError(_("This request can no longer be allocated"))
@@ -251,6 +254,7 @@ def clear_allocations(request: LoanRequest, actor) -> None:
     if request.status not in {
         LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.READY_FOR_PICKUP,
         LoanRequestStatus.PARTIALLY_FULFILLED,
     }:
         raise ValidationError(_("This request can no longer be allocated"))

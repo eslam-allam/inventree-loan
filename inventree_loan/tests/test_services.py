@@ -22,7 +22,9 @@ from inventree_loan.models import (
     LoanStaffRole,
     LoanStatus,
 )
+from inventree_loan.services.allocation import auto_allocate_request
 from inventree_loan.services.checkout import checkout_request
+from inventree_loan.services.pickups import mark_ready_for_pickup
 from inventree_loan.services.returns import return_item
 
 
@@ -66,6 +68,32 @@ class LoanCheckoutServiceTests(InvenTreeTestCase):
             stock_item=self.stock_item,
             quantity=Decimal("2"),
         )
+
+    @patch("inventree_loan.services.requests._loan_location")
+    @patch("inventree_loan.services.checkout.get_loan_location")
+    @patch("inventree_loan.services.checkout.get_on_loan_status_key")
+    def test_ready_pickup_is_collected_by_checkout(
+        self, status_key, checkout_location, request_location
+    ):
+        status_key.return_value = StockStatus.QUARANTINED.value
+        checkout_location.return_value = self.loan_location
+        request_location.return_value = self.loan_location
+
+        auto_allocate_request(self.request, self.desk_user)
+        pickup = mark_ready_for_pickup(
+            self.request, self.desk_user, name="Blue box"
+        )
+        self.request.refresh_from_db()
+        self.assertEqual(
+            self.request.status, LoanRequestStatus.READY_FOR_PICKUP
+        )
+        self.assertEqual(pickup.status, "ready")
+
+        checkout_request(self.request, self.desk_user, signature=TEST_SIGNATURE)
+        pickup.refresh_from_db()
+        self.request.refresh_from_db()
+        self.assertEqual(pickup.status, "collected")
+        self.assertEqual(self.request.status, LoanRequestStatus.FULFILLED)
 
     @patch("inventree_loan.services.requests._loan_location")
     @patch("inventree_loan.services.checkout.get_loan_location")

@@ -39,6 +39,7 @@ from ..models import (
     Loan,
     LoanEvent,
     LoanItem,
+    LoanPickup,
     LoanRequest,
     LoanRequestAllocation,
     LoanRequestLine,
@@ -79,6 +80,7 @@ from ..services.requests import (
     part_detail,
     reject_request,
 )
+from ..services.pickups import mark_ready_for_pickup
 from ..services.returns import mark_lost, renew_loan, return_loan
 from ..services.setup import (
     ensure_setup,
@@ -92,6 +94,7 @@ from .serializers import (
     LostSerializer,
     PublicRequestCreateSerializer,
     PublicRequestLookupSerializer,
+    ReadyForPickupSerializer,
     RenewSerializer,
     RequestAllocateSerializer,
     RequestCreateSerializer,
@@ -117,7 +120,12 @@ def _web_url(path: str) -> str:
     return f"/{get_frontend_base()}{path}"
 
 
-REQUEST_OPEN_STATUSES = ["pending", "approved", "partially_fulfilled"]
+REQUEST_OPEN_STATUSES = [
+    "pending",
+    "approved",
+    "ready_for_pickup",
+    "partially_fulfilled",
+]
 REQUEST_CLOSED_STATUSES = ["fulfilled", "rejected", "cancelled"]
 LOAN_OPEN_STATUSES = ["active", "partially_returned", "overdue"]
 LOAN_CLOSED_STATUSES = ["returned", "cancelled", "lost"]
@@ -219,6 +227,8 @@ def _filter_request_list(queryset, params):
         queryset = queryset.filter(
             Q(reference__icontains=search)
             | Q(loan__reference__icontains=search)
+            | Q(pickup__reference__icontains=search)
+            | Q(pickup__name__icontains=search)
             | Q(requester__username__icontains=search)
             | Q(requester__first_name__icontains=search)
             | Q(requester__last_name__icontains=search)
@@ -327,11 +337,17 @@ def _request_summary_data(
         "loan_status": loan.status if loan else "",
         "loan_status_display": loan.get_status_display() if loan else "",
         "loan_returned_at": _iso(loan.returned_at) if loan else None,
+        "pickup": _pickup_data(getattr(loan_request, "pickup", None)),
         "can_approve": approve and status == "pending",
         "can_handout": handout,
+        "can_mark_ready": approve
+        and status in {"approved", "ready_for_pickup"},
         "can_cancel": status in REQUEST_OPEN_STATUSES,
         "can_checkout": handout
-        and (status == "approved" or (status == "pending" and not require_approval)),
+        and (
+            status in {"approved", "ready_for_pickup"}
+            or (status == "pending" and not require_approval)
+        ),
     }
 
 
@@ -532,6 +548,24 @@ def _drf_error(exc: DjangoValidationError):
     return str(exc)
 
 
+def _pickup_data(pickup: LoanPickup | None) -> dict | None:
+    if pickup is None:
+        return None
+    return {
+        "pk": pickup.pk,
+        "reference": pickup.reference,
+        "name": pickup.name,
+        "display_name": pickup.display_name,
+        "status": pickup.status,
+        "status_display": pickup.get_status_display(),
+        "token": str(pickup.token),
+        "ready_at": _iso(pickup.ready_at),
+        "collected_at": _iso(pickup.collected_at),
+        "label_url": reverse("plugin:loan:pickup_label", args=[pickup.pk]),
+        "qr_url": reverse("plugin:loan:pickup_qr", args=[pickup.pk]),
+    }
+
+
 def _request_data(request: LoanRequest, user) -> dict:
     loan = getattr(request, "loan", None)
     lines = list(request.lines.all())
@@ -593,12 +627,16 @@ def _request_data(request: LoanRequest, user) -> dict:
         "loan_status": loan.status if loan else "",
         "loan_status_display": loan.get_status_display() if loan else "",
         "loan_returned_at": _iso(loan.returned_at) if loan else None,
+        "pickup": _pickup_data(getattr(request, "pickup", None)),
         "can_approve": approve and request.status == "pending",
         "can_handout": handout,
-        "can_cancel": request.status in {"pending", "approved", "partially_fulfilled"},
+        "can_mark_ready": approve
+        and request.status in {"approved", "ready_for_pickup"},
+        "can_cancel": request.status
+        in {"pending", "approved", "ready_for_pickup", "partially_fulfilled"},
         "can_checkout": handout
         and (
-            request.status == "approved"
+            request.status in {"approved", "ready_for_pickup"}
             or (request.status == "pending" and not get_setting("REQUIRE_APPROVAL", True))
         ),
         "lines": [
@@ -1133,6 +1171,28 @@ class RequestCancelView(LoanAPIView):
         return Response(_request_data(loan_request, request.user))
 
 
+class RequestReadyView(LoanAPIView):
+    """Pack an approved request and mark it ready for pickup."""
+
+    def post(self, request, pk):
+        loan_request = get_object_or_404(visible_requests(request.user), pk=pk)
+        serializer = ReadyForPickupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            mark_ready_for_pickup(
+                loan_request,
+                request.user,
+                name=data.get("name", ""),
+                notes=data.get("notes", ""),
+            )
+        except DjangoValidationError as exc:
+            raise ValidationError(_drf_error(exc)) from None
+        return Response(
+            _request_data(request_with_lines(request.user, pk), request.user)
+        )
+
+
 class RequestAllocateView(LoanAPIView):
     """Auto-allocate a request or add/clear a manual allocation."""
 
@@ -1425,6 +1485,9 @@ class StatsView(LoanAPIView):
         return Response({
             "pending_requests": visible_requests_qs.filter(status="pending").count(),
             "approved_requests": visible_requests_qs.filter(status="approved").count(),
+            "ready_for_pickup_requests": visible_requests_qs.filter(
+                status="ready_for_pickup"
+            ).count(),
             "active_loans": visible_loans_qs.filter(
                 status__in=["active", "partially_returned", "overdue"]
             ).count(),

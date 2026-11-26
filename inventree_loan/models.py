@@ -19,10 +19,20 @@ class LoanRequestStatus(models.TextChoices):
 
     PENDING = "pending", _("Pending approval")
     APPROVED = "approved", _("Approved")
+    READY_FOR_PICKUP = "ready_for_pickup", _("Ready for pickup")
     REJECTED = "rejected", _("Rejected")
     CANCELLED = "cancelled", _("Cancelled")
     FULFILLED = "fulfilled", _("Fulfilled")
     PARTIALLY_FULFILLED = "partially_fulfilled", _("Partially fulfilled")
+
+
+class LoanPickupStatus(models.TextChoices):
+    """Lifecycle states for a physical pickup box or bag."""
+
+    PACKING = "packing", _("Packing")
+    READY = "ready", _("Ready for pickup")
+    COLLECTED = "collected", _("Collected")
+    CANCELLED = "cancelled", _("Cancelled")
 
 
 class LoanStatus(models.TextChoices):
@@ -53,6 +63,8 @@ class LoanEventType(models.TextChoices):
 
     REQUESTED = "requested", _("Request submitted")
     APPROVED = "approved", _("Request approved")
+    READY_FOR_PICKUP = "ready_for_pickup", _("Ready for pickup")
+    PICKUP_COLLECTED = "pickup_collected", _("Pickup collected")
     REJECTED = "rejected", _("Request rejected")
     CANCELLED = "cancelled", _("Request cancelled")
     ISSUED = "issued", _("Loan issued")
@@ -193,6 +205,7 @@ class LoanRequest(LoanBaseModel):
         return self.status in {
             LoanRequestStatus.PENDING,
             LoanRequestStatus.APPROVED,
+            LoanRequestStatus.READY_FOR_PICKUP,
             LoanRequestStatus.PARTIALLY_FULFILLED,
         }
 
@@ -253,6 +266,78 @@ class LoanRequest(LoanBaseModel):
         from .permissions import is_manager
 
         return is_manager(user)
+
+
+class LoanPickup(LoanBaseModel):
+    """A physical box or bag prepared for one request."""
+
+    REFERENCE_PREFIX = "BOX"
+
+    request = models.OneToOneField(
+        LoanRequest,
+        on_delete=models.CASCADE,
+        related_name="pickup",
+        verbose_name=_("Request"),
+    )
+    reference = models.CharField(
+        max_length=32,
+        unique=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Pickup reference"),
+    )
+    name = models.CharField(
+        max_length=100, blank=True, verbose_name=_("Box / bag name")
+    )
+    token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        verbose_name=_("QR token"),
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=LoanPickupStatus.choices,
+        default=LoanPickupStatus.PACKING,
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="loan_pickups_created",
+        verbose_name=_("Created by"),
+    )
+    ready_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Ready at")
+    )
+    collected_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Collected at")
+    )
+    notes = models.TextField(blank=True, verbose_name=_("Packing notes"))
+
+    class Meta:
+        ordering = ["-created"]
+        verbose_name = _("Loan pickup box")
+        verbose_name_plural = _("Loan pickup boxes")
+
+    def __str__(self) -> str:
+        return self.reference or f"Pickup #{self.pk}"
+
+    @property
+    def display_name(self) -> str:
+        """Human-friendly box name, falling back to the generated reference."""
+        return (self.name or "").strip() or self.reference
+
+    def save(self, *args, **kwargs):
+        """Assign a human-readable reference after the first save."""
+        super().save(*args, **kwargs)
+        if not self.reference:
+            year = local_today().year
+            self.reference = f"{self.REFERENCE_PREFIX}-{year}-{self.pk:05d}"
+            type(self).objects.filter(pk=self.pk).update(reference=self.reference)
 
 
 class LoanRequestLine(models.Model):

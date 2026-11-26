@@ -2,7 +2,15 @@
 
 from django.contrib import admin
 
-from .models import Loan, LoanEvent, LoanItem, LoanRequest, LoanRequestLine, LoanStaff
+from .models import (
+    Loan,
+    LoanEvent,
+    LoanItem,
+    LoanPickup,
+    LoanRequest,
+    LoanRequestLine,
+    LoanStaff,
+)
 
 
 def _register(model, admin_class):
@@ -80,6 +88,14 @@ class LoanEventAdmin(admin.ModelAdmin):
         return False
 
 
+class LoanPickupAdmin(admin.ModelAdmin):
+    list_display = ("reference", "name", "request", "status", "ready_at", "collected_at")
+    list_filter = ("status",)
+    search_fields = ("reference", "name", "request__reference")
+    raw_id_fields = ("request", "created_by")
+    readonly_fields = ("reference", "token", "created", "updated")
+
+
 class LoanStaffAdmin(admin.ModelAdmin):
     list_display = ("user", "role", "active", "created_by", "created")
     list_filter = ("role", "active")
@@ -91,4 +107,5 @@ _register(LoanRequest, LoanRequestAdmin)
 _register(Loan, LoanAdmin)
 _register(LoanItem, LoanItemAdmin)
 _register(LoanEvent, LoanEventAdmin)
+_register(LoanPickup, LoanPickupAdmin)
 _register(LoanStaff, LoanStaffAdmin)

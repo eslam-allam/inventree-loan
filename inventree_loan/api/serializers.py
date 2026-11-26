@@ -63,6 +63,15 @@ class DecisionSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class ReadyForPickupSerializer(serializers.Serializer):
+    """Pack a request into a pickup box and mark it ready."""
+
+    name = serializers.CharField(
+        required=False, allow_blank=True, max_length=100, default=""
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
 class CheckoutLineSerializer(serializers.Serializer):
     """A line to issue for a walk-in loan."""
 

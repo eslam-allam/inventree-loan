@@ -19,7 +19,11 @@ from ..models import (
 )
 from ..permissions import can_handout
 from ..utils import clean_signature
-from .notifications import notify_item_lost, notify_loan_returned
+from .notifications import (
+    notify_item_lost,
+    notify_loan_partially_returned,
+    notify_loan_returned,
+)
 from .setup import get_loan_location
 
 
@@ -169,8 +173,6 @@ def return_item(
         item.loan.save(
             update_fields=["signature_return", "signature_return_at", "updated"]
         )
-    if item.loan.status == LoanStatus.RETURNED:
-        notify_loan_returned(item.loan)
     return item
 
 
@@ -201,6 +203,11 @@ def return_loan(loan, actor, lines: list[dict], signature: str = "") -> list[Loa
         )
     if not results:
         raise ValidationError(_("No items were selected for return"))
+    loan.refresh_status()
+    if loan.status == LoanStatus.RETURNED:
+        notify_loan_returned(loan)
+    else:
+        notify_loan_partially_returned(loan)
     return results
 
 
