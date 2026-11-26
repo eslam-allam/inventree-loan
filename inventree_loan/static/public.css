@@ -1549,8 +1549,18 @@ body:has(.basket-drawer[open]) {
     }
 
     .it-table .it-actions .it-btn {
-        min-height: 36px;
+        min-height: 40px;
         padding: 0 10px;
+    }
+
+    .it-search,
+    .it-scan-field {
+        height: 40px;
+    }
+
+    .loan-external .loan-input,
+    .loan-external .loan-textarea {
+        min-height: 42px;
     }
 }
 
