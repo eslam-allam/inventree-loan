@@ -2333,6 +2333,11 @@ function StaffPanel({ context }) {
     const resetPage = () => setPage(0);
 
     useEffect(() => {
+        if (selectedUserId) {
+            setUserOptions([]);
+            setUserSearchLoading(false);
+            return undefined;
+        }
         const term = debouncedUserQuery.trim();
         if (term.length < 2) {
             setUserOptions([]);
@@ -2361,7 +2366,7 @@ function StaffPanel({ context }) {
         return () => {
             active = false;
         };
-    }, [api, debouncedUserQuery]);
+    }, [api, debouncedUserQuery, selectedUserId]);
 
     const add = () => {
         if (!selectedUserId) {
@@ -2418,33 +2423,66 @@ function StaffPanel({ context }) {
                 ),
                 h(
                     M.Group,
-                    { align: 'flex-end', wrap: 'wrap' },
-                    h(M.Select, {
-                        label: 'Find user',
-                        placeholder: 'Search users…',
-                        searchable: true,
-                        clearable: true,
-                        data: userOptions,
-                        value: selectedUserId,
-                        searchValue: userQuery,
-                        onSearchChange: (value) => {
-                            setUserQuery(value || '');
-                            setSelectedUserId(null);
-                        },
-                        onChange: (value) => {
-                            setSelectedUserId(value || null);
-                            const selected = userOptions.find((item) => item.value === value);
-                            if (selected) setUserQuery(selected.label);
-                        },
-                        rightSection: userSearchLoading
-                            ? h(M.Loader, { size: 'xs' })
-                            : undefined,
-                        nothingFoundMessage:
-                            userQuery.trim().length >= 2
-                                ? 'No matching users'
-                                : 'Type at least 2 characters',
-                        style: { flex: '1 1 340px', minWidth: 260 }
-                    }),
+                    { align: 'flex-start', wrap: 'wrap' },
+                    h(
+                        M.Stack,
+                        { gap: 4, style: { flex: '1 1 340px', minWidth: 260 } },
+                        h(M.TextInput, {
+                            label: 'Find user',
+                            placeholder: 'Search by name, username or email…',
+                            value: userQuery,
+                            onChange: (event) => {
+                                setUserQuery(event.currentTarget.value);
+                                setSelectedUserId(null);
+                                setUserOptions([]);
+                            },
+                            leftSection: h(M.Text, { size: 'sm', c: 'dimmed' }, '⌕'),
+                            rightSection: userSearchLoading
+                                ? h(M.Loader, { size: 'xs' })
+                                : undefined
+                        }),
+                        userOptions.length
+                            ? h(
+                                  M.Paper,
+                                  {
+                                      withBorder: true,
+                                      p: 4,
+                                      style: { maxHeight: 220, overflowY: 'auto' }
+                                  },
+                                  h(
+                                      M.Stack,
+                                      { gap: 0 },
+                                      userOptions.map((user) =>
+                                          h(
+                                              M.Button,
+                                              {
+                                                  key: user.value,
+                                                  variant: 'subtle',
+                                                  color: 'gray',
+                                                  size: 'compact-sm',
+                                                  fullWidth: true,
+                                                  justify: 'flex-start',
+                                                  onClick: () => {
+                                                      setSelectedUserId(user.value);
+                                                      setUserQuery(user.label);
+                                                      setUserOptions([]);
+                                                  }
+                                              },
+                                              user.label
+                                          )
+                                      )
+                                  )
+                              )
+                            : userQuery.trim().length >= 2 &&
+                                !userSearchLoading &&
+                                !selectedUserId
+                              ? h(
+                                    M.Text,
+                                    { size: 'xs', c: 'dimmed', px: 4 },
+                                    'No matching users'
+                                )
+                              : null
+                    ),
                     h(M.Select, {
                         label: 'Role',
                         data: STAFF_ROLE_OPTIONS,
@@ -2453,7 +2491,7 @@ function StaffPanel({ context }) {
                         allowDeselect: false,
                         w: 200
                     }),
-                    h(M.Button, { loading: busy, onClick: add }, 'Add or update')
+                    h(M.Button, { loading: busy, onClick: add, mt: 24 }, 'Add or update')
                 ),
                 h(ErrorAlert, { error })
             )

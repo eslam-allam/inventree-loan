@@ -24,11 +24,23 @@
         <aside class="it-cat-nav" aria-label="{% trans 'Equipment categories' %}">
             <h2>{% trans "Categories" %}</h2>
             <nav data-public-categories>
-                <button type="button" class="it-tab is-active" data-category-id="" aria-pressed="true">{% trans "All items" %}</button>
-                {% for category in categories %}
-                    <button type="button" class="it-tab" data-category-id="{{ category.pk }}" style="--depth: {{ category.depth }}" aria-pressed="false">
-                        <span>{{ category.name }}</span><small>{{ category.part_count }}</small>
+                <div class="it-cat-row" data-category-row data-depth="0" data-parent-id="">
+                    <span class="it-cat-toggle-spacer" aria-hidden="true"></span>
+                    <button type="button" class="it-tab is-active" data-category-id="" aria-pressed="true">
+                        <span>{% trans "All items" %}</span><small>{{ catalog_total }}</small>
                     </button>
+                </div>
+                {% for category in categories %}
+                    <div class="it-cat-row" data-category-row data-category-key="{{ category.pk }}" data-depth="{{ category.depth }}" data-parent-id="{{ category.parent|default_if_none:'' }}" style="--depth: {{ category.depth }}">
+                        {% if category.has_children %}
+                            <button type="button" class="it-cat-toggle" data-toggle-category="{{ category.pk }}" aria-expanded="true" aria-label="{% trans 'Toggle subcategories' %}"></button>
+                        {% else %}
+                            <span class="it-cat-toggle-spacer" aria-hidden="true"></span>
+                        {% endif %}
+                        <button type="button" class="it-tab" data-category-id="{{ category.pk }}" aria-pressed="false">
+                            <span>{{ category.name }}</span><small>{{ category.part_count }}</small>
+                        </button>
+                    </div>
                 {% endfor %}
             </nav>
         </aside>

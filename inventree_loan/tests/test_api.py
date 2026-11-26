@@ -14,7 +14,11 @@ from stock.status_codes import StockStatus
 
 TEST_SIGNATURE = "data:image/png;base64,AAAA"
 
-from inventree_loan.services.requests import create_request
+from inventree_loan.services.requests import (
+    catalog_categories,
+    catalog_part_count,
+    create_request,
+)
 
 from inventree_loan.models import (
     Loan,
@@ -252,6 +256,17 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
             "/plugin/loan/api/loans/?search=API%20Loan%20Part"
         )
         self.assertEqual(response.data["total"], 1)
+
+    def test_catalog_category_counts_include_children(self):
+        child = PartCategory.objects.create(
+            name="API Loan Child", parent=self.category
+        )
+        Part.objects.create(name="Child Loan Part", category=child)
+        categories = {item["pk"]: item for item in catalog_categories()}
+        self.assertEqual(categories[self.category.pk]["part_count"], 2)
+        self.assertEqual(categories[child.pk]["part_count"], 1)
+        self.assertTrue(categories[self.category.pk]["has_children"])
+        self.assertGreaterEqual(catalog_part_count(), 2)
 
     def test_catalog_is_requester_safe(self):
         response = self.client.get("/plugin/loan/api/catalog/?search=API")

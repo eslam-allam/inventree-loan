@@ -270,6 +270,20 @@ def _part_image(part):
         return None
 
 
+def catalog_part_count() -> int:
+    """Return the number of parts visible in the public catalogue."""
+    from part.models import Part
+
+    queryset = Part.objects.filter(active=True, virtual=False)
+    base = get_loanable_category()
+    if base:
+        queryset = queryset.filter(
+            Q(category__pathstring=base.pathstring)
+            | Q(category__pathstring__startswith=f"{base.pathstring}/")
+        )
+    return queryset.count()
+
+
 def catalog_categories() -> list[dict]:
     """Return the category tree available to public requesters."""
     from part.models import Part, PartCategory
@@ -298,7 +312,7 @@ def catalog_categories() -> list[dict]:
             | Q(pathstring__startswith=f"{base.pathstring}/")
         )
 
-    part_counts = {
+    exact_counts = {
         row["category_id"]: row["total"]
         for row in Part.objects.filter(
             active=True, virtual=False, category__isnull=False
@@ -307,17 +321,33 @@ def catalog_categories() -> list[dict]:
         .annotate(total=Count("pk"))
     }
 
-    categories = []
-    for category in queryset.order_by("tree_id", "lft"):
-        categories.append({
+    category_rows = list(queryset.order_by("tree_id", "lft"))
+    parent_ids = {category.parent_id for category in category_rows if category.parent_id}
+
+    # A category filter includes all of its descendants, so the number shown
+    # next to a category must include descendant parts too.
+    rolled_counts = {}
+    for category in category_rows:
+        count = exact_counts.get(category.pk, 0)
+        if not count:
+            continue
+        bits = category.pathstring.split("/")
+        for index in range(1, len(bits) + 1):
+            path = "/".join(bits[:index])
+            rolled_counts[path] = rolled_counts.get(path, 0) + count
+
+    return [
+        {
             "pk": category.pk,
             "name": category.name,
             "parent": category.parent_id,
             "path": category.pathstring,
             "depth": category.pathstring.count("/"),
-            "part_count": part_counts.get(category.pk, 0),
-        })
-    return categories
+            "part_count": rolled_counts.get(category.pathstring, 0),
+            "has_children": category.pk in parent_ids,
+        }
+        for category in category_rows
+    ]
 
 
 def catalog_parts(

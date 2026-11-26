@@ -717,6 +717,50 @@
             }
         };
 
+        const categoryRows = $$('[data-category-row]', root);
+        const categoryRowsByKey = new Map(
+            categoryRows
+                .filter((row) => row.dataset.categoryKey)
+                .map((row) => [row.dataset.categoryKey, row])
+        );
+        const collapsedCategories = new Set();
+        const categoryIsHidden = (row) => {
+            let parent = row.dataset.parentId;
+            const seen = new Set();
+            while (parent && !seen.has(parent)) {
+                if (collapsedCategories.has(parent)) return true;
+                seen.add(parent);
+                parent = categoryRowsByKey.get(parent)?.dataset.parentId || '';
+            }
+            return false;
+        };
+        const applyCategoryCollapse = () => {
+            categoryRows.forEach((row) => {
+                if (!row.dataset.categoryKey) return;
+                row.hidden = categoryIsHidden(row);
+            });
+            $$('[data-toggle-category]', root).forEach((button) => {
+                const key = button.dataset.toggleCategory;
+                const expanded = !collapsedCategories.has(key);
+                const name =
+                    button.parentElement?.querySelector('.it-tab span')?.textContent?.trim() ||
+                    'category';
+                button.setAttribute('aria-expanded', String(expanded));
+                button.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} ${name}`);
+            });
+        };
+        $$('[data-toggle-category]', root).forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const key = button.dataset.toggleCategory;
+                if (collapsedCategories.has(key)) collapsedCategories.delete(key);
+                else collapsedCategories.add(key);
+                applyCategoryCollapse();
+            });
+        });
+        applyCategoryCollapse();
+
         categoryButtons.forEach((button) => {
             button.addEventListener('click', () => {
                 categoryButtons.forEach((item) => {

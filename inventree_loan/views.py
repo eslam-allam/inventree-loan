@@ -29,7 +29,7 @@ from .selectors import (
     visible_loans,
     visible_requests,
 )
-from .services.requests import catalog_categories
+from .services.requests import catalog_categories, catalog_part_count
 from .services.setup import is_configured
 from .utils import local_today
 
@@ -129,6 +129,7 @@ def request_new(request):
         default_return=default_return,
         public_mode=not request.user.is_authenticated,
         categories=catalog_categories(),
+        catalog_total=catalog_part_count(),
     )
     # The public form is available to everyone; the old group restriction only
     # applies to the authenticated account pages.

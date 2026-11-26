@@ -119,11 +119,12 @@ The plugin adds a **Loans** tab to the InvenTree navigation bar, a **Loans** car
 to the dashboard widget list, and a **Loan Manager** spotlight action.
 
 - **Request equipment** (`/plugin/loan/request/`) is the public catalogue.
-  It requires no account. It uses an InvenTree-style table with category tabs,
-  search, barcode input, pagination, and a request drawer. Requesters open item
-  details, choose available stock, enter their contact details, sign, and
-  submit. The confirmation shows the reference code, tracking link, and a
-  printable request receipt.
+  It requires no account. It uses an InvenTree-style table with a collapsible
+  category tree, category counts that include subcategories, search, barcode
+  input, pagination, and a request drawer. Requesters open item details, choose
+  available stock, enter their contact details, sign, and submit. The
+  confirmation shows the reference code, tracking link, and a printable
+  request receipt.
 - **Track a request** (`/plugin/loan/track/`) lets an anonymous requester enter
   the reference code and email address to open their request.
 - **Request status** (`/plugin/loan/track/<token>/`) shows the request, loan
