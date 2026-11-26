@@ -351,10 +351,36 @@
         const errorBox = $('[data-request-error]', root);
         const successBox = $('[data-request-success]', root);
         const continueButton = $('[data-scroll-to-details]', root);
+        const basketDialog = $('[data-basket-dialog]', root);
         const partDialog = $('[data-part-dialog]', document);
         const partDialogContent = $('[data-part-dialog-content]', partDialog);
         const state = { lines: [], parts: new Map(), category: '', search: '', page: 0, total: 0, limit: 25 };
         let loadSequence = 0;
+        const clearFieldError = (field) => {
+            if (!field) return;
+            const describedBy = field.getAttribute('aria-describedby');
+            if (describedBy) {
+                const error = document.getElementById(describedBy);
+                if (error?.classList.contains('field-error')) error.remove();
+            }
+            field.removeAttribute('aria-describedby');
+            field.removeAttribute('aria-invalid');
+        };
+
+        const setFieldError = (field, message) => {
+            if (!field) return;
+            clearFieldError(field);
+            const id = `field-error-${field.id || Math.random().toString(36).slice(2)}`;
+            const error = document.createElement('p');
+            error.id = id;
+            error.className = 'field-error';
+            error.setAttribute('role', 'alert');
+            error.textContent = message;
+            field.insertAdjacentElement('afterend', error);
+            field.setAttribute('aria-describedby', id);
+            field.setAttribute('aria-invalid', 'true');
+        };
+
         const syncDates = () => {
             if (!neededByInput || !returnByInput) return;
             returnByInput.min = neededByInput.value || '';
@@ -380,9 +406,22 @@
             });
             if (focusSelector) window.setTimeout(() => $(focusSelector)?.focus(), 350);
         };
-        const scrollToDetails = () => scrollTo('#request-details', '#requester_name');
+        const closeBasket = () => {
+            if (basketDialog?.open) basketDialog.close();
+        };
+        const openBasket = () => {
+            if (basketDialog && !basketDialog.open) basketDialog.showModal();
+        };
+        const scrollToDetails = () => {
+            closeBasket();
+            scrollTo('#request-details', '#requester_name');
+        };
         continueButton?.addEventListener('click', scrollToDetails);
-        $('[data-scroll-to-basket]', root)?.addEventListener('click', () => scrollTo('#request-basket'));
+        $('[data-open-basket]', root)?.addEventListener('click', openBasket);
+        $('[data-close-basket]', root)?.addEventListener('click', closeBasket);
+        basketDialog?.addEventListener('click', (event) => {
+            if (event.target === basketDialog) closeBasket();
+        });
 
         const renderCart = () => {
             $$('[data-cart-count]').forEach((element) => { element.textContent = String(state.lines.length); });
@@ -486,7 +525,7 @@
                         <div class="stock-row-title">${esc(item.label || `Item #${item.pk}`)}</div>
                         <div class="stock-row-meta">${esc(item.location || 'No location')} · ${num(item.available)} available</div>
                     </div>
-                    <button class="btn btn-small btn-primary" type="button" data-dialog-add-stock="${item.pk}" ${num(item.available) <= 0 ? 'disabled' : ''}>Add</button>
+                    <button class="it-btn it-btn-small it-btn-primary" type="button" data-dialog-add-stock="${item.pk}" aria-label="Add ${esc(item.label || `item ${item.pk}`)}" ${num(item.available) <= 0 ? 'disabled' : ''}>Add</button>
                 </div>`).join('');
             const addControl = stockItems.length
                 ? (part.trackable
@@ -494,7 +533,7 @@
                     : `<div class="quantity-add">
                         <label class="loan-label" for="dialog-quantity">Quantity</label>
                         <input id="dialog-quantity" type="number" min="0.00001" step="any" value="1" max="${part.available}" data-dialog-quantity>
-                        <button class="btn btn-primary" type="button" data-dialog-add-part>Add</button>
+                        <button class="it-btn it-btn-primary" type="button" data-dialog-add-part aria-label="Add ${esc(part.name)} to request">Add</button>
                     </div>`)
                 : `<p class="part-dialog-desc">No units are available to borrow right now.</p>`;
 
@@ -504,7 +543,7 @@
                         <h2 id="part-dialog-title">${esc(part.name)}</h2>
                         <p>${esc(part.ipn || 'No part number')}${part.category ? ` · ${esc(part.category)}` : ''}</p>
                     </div>
-                    <button class="btn btn-quiet btn-small" type="button" data-close-part>Close</button>
+                    <button class="it-btn it-btn-small" type="button" data-close-part>Close</button>
                 </div>
                 <div class="part-dialog-layout">
                     <div class="part-dialog-image">${image}</div>
@@ -579,12 +618,12 @@
             if (pageInfo) {
                 const start = state.total ? state.page * state.limit + 1 : 0;
                 const end = Math.min((state.page + 1) * state.limit, state.total);
-                pageInfo.textContent = `${start} - ${end} / ${state.total}`;
+                pageInfo.textContent = `${start.toLocaleString()} - ${end.toLocaleString()} / ${state.total.toLocaleString()}`;
             }
         };
 
         const renderResults = (parts) => {
-            if (resultCount) resultCount.textContent = `${state.total} ${state.total === 1 ? 'item' : 'items'}`;
+            if (resultCount) resultCount.textContent = `${state.total.toLocaleString()} ${state.total === 1 ? 'item' : 'items'}`;
             if (!parts.length) {
                 resultsContainer.innerHTML = '<tr><td colspan="6" class="it-table-empty">No matching items. Try another category or search.</td></tr>';
                 renderPager();
@@ -593,13 +632,13 @@
             resultsContainer.innerHTML = parts.map((part) => {
                 const available = num(part.available);
                 return `<tr>
-                    <td><button class="it-link" type="button" data-open-part="${part.pk}">${esc(part.name)}</button></td>
+                    <td><button class="it-link" type="button" data-open-part="${part.pk}" aria-label="View details for ${esc(part.name)}">${esc(part.name)}</button></td>
                     <td>${esc(part.ipn || '—')}</td>
                     <td class="it-ellipsis" title="${esc(part.description || '')}">${esc(part.description || '—')}</td>
                     <td>${esc(part.category || '—')}</td>
-                    <td class="it-num">${available > 0 ? available : '<span class="it-dim">Unavailable</span>'}</td>
+                    <td class="it-num">${available > 0 ? available.toLocaleString() : '<span class="it-dim">Unavailable</span>'}</td>
                     <td class="it-actions">
-                        <button class="it-btn it-btn-light it-btn-small" type="button" data-add-part="${part.pk}" ${available <= 0 ? 'disabled' : ''}>Add</button>
+                        <button class="it-btn it-btn-light it-btn-small" type="button" data-add-part="${part.pk}" aria-label="Add ${esc(part.name)} to request" ${available <= 0 ? 'disabled' : ''}>Add</button>
                     </td>
                 </tr>`;
             }).join('');
@@ -781,6 +820,8 @@
         submit?.addEventListener('click', async (event) => {
             event.preventDefault();
             clearError(errorBox);
+            $$('.field-error', root).forEach((error) => error.remove());
+            $$('[aria-invalid="true"]', root).forEach((field) => clearFieldError(field));
             successBox.hidden = true;
             const name = $('#requester_name')?.value.trim() || '';
             const email = $('#requester_email')?.value.trim() || '';
@@ -795,10 +836,15 @@
             const returnBy = $('#return_by')?.value;
             const fail = (message, field) => {
                 showError(errorBox, message);
+                if (field?.type !== 'checkbox') setFieldError(field, message);
                 field?.focus();
                 return undefined;
             };
-            if (!state.lines.length) return fail('Add at least one item to the request.', searchInput);
+            if (!state.lines.length) {
+                showError(errorBox, 'Add at least one item to the request.');
+                searchInput?.focus();
+                return undefined;
+            }
             if (!name) return fail('Enter your full name.', $('#requester_name'));
             if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
                 return fail('Enter a valid email address.', $('#requester_email'));
@@ -838,6 +884,7 @@
                 });
                 state.lines = [];
                 renderCart();
+                closeBasket();
                 clearSignature();
                 showSuccess(
                     successBox,
@@ -852,6 +899,11 @@
             }
         });
 
+        $$('.loan-input, .loan-textarea', root).forEach((field) => {
+            field.addEventListener('input', () => clearFieldError(field));
+            field.addEventListener('change', () => clearFieldError(field));
+        });
+        signatureCanvas?.addEventListener('pointerdown', () => clearFieldError(signatureCanvas));
         renderCart();
         loadCatalog();
     }
@@ -1100,6 +1152,8 @@
         submit?.addEventListener('click', async (event) => {
             event.preventDefault();
             clearError(errorBox);
+            $$('.field-error', root).forEach((error) => error.remove());
+            $$('[aria-invalid="true"]', root).forEach((field) => clearFieldError(field));
             successBox.hidden = true;
             const due = $('[data-checkout-due]')?.value;
             const notes = $('[data-checkout-notes]')?.value.trim() || '';
@@ -1262,6 +1316,8 @@
             event.preventDefault();
             if (!state.loan) return showError(errorBox, 'Scan or load a loan first.');
             clearError(errorBox);
+            $$('.field-error', root).forEach((error) => error.remove());
+            $$('[aria-invalid="true"]', root).forEach((field) => clearFieldError(field));
             successBox.hidden = true;
             const lines = [];
             body.querySelectorAll('[data-return-qty]').forEach((input) => {
@@ -1356,6 +1412,8 @@
 
         addButton?.addEventListener('click', async () => {
             clearError(errorBox);
+            $$('.field-error', root).forEach((error) => error.remove());
+            $$('[aria-invalid="true"]', root).forEach((field) => clearFieldError(field));
             successBox.hidden = true;
             const username = $('[data-staff-username]')?.value.trim();
             const role = $('[data-staff-role]')?.value || 'approver';

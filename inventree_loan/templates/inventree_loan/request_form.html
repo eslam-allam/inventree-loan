@@ -14,7 +14,7 @@
         </div>
         <div class="it-page-actions">
             <a class="it-btn" href="{% url 'plugin:loan:public_track_lookup' %}">{% trans "Track a request" %}</a>
-            <button class="it-btn it-btn-light" type="button" data-scroll-to-basket>
+            <button class="it-btn it-btn-light" type="button" data-open-basket aria-haspopup="dialog">
                 {% trans "Request" %} <span class="it-count" data-cart-count>0</span>
             </button>
         </div>
@@ -37,7 +37,7 @@
             <div class="it-toolbar">
                 <div class="it-toolbar-left">
                     <h2 id="catalog-heading" data-public-heading>{% trans "All items" %}</h2>
-                    <span class="it-toolbar-count" data-public-result-count></span>
+                    <span class="it-toolbar-count" data-public-result-count aria-live="polite"></span>
                 </div>
                 <div class="it-toolbar-right">
                     <label class="it-search">
@@ -72,29 +72,36 @@
                 </table>
             </div>
             <footer class="it-pagination">
-                <span data-public-page-info></span>
+                <span data-public-page-info aria-live="polite"></span>
                 <nav class="it-pager" data-public-pager aria-label="{% trans 'Pagination' %}"></nav>
             </footer>
         </section>
     </div>
 
-    <section class="it-panel it-basket" id="request-basket" aria-labelledby="basket-heading">
-        <header class="it-panel-head">
-            <h2 id="basket-heading">{% trans "Your request" %}</h2>
-            <span class="it-toolbar-count"><span data-cart-count>0</span> {% trans "selected" %}</span>
-        </header>
-        <div class="it-empty-row" data-cart-empty>{% trans "No items selected. Use Add in the catalogue table." %}</div>
-        <div class="it-table-wrap" data-cart-wrap hidden>
-            <table class="it-table">
-                <thead><tr><th scope="col">{% trans "Item" %}</th><th scope="col">{% trans "Quantity" %}</th><th scope="col" class="it-actions"><span class="loan-sr-only">{% trans "Remove" %}</span></th></tr></thead>
-                <tbody data-cart-body></tbody>
-            </table>
+    <dialog class="basket-drawer" data-basket-dialog aria-labelledby="basket-heading">
+        <div class="basket-drawer-inner">
+            <header class="basket-drawer-head">
+                <div>
+                    <h2 id="basket-heading">{% trans "Your request" %}</h2>
+                    <span class="it-toolbar-count"><span data-cart-count>0</span> {% trans "selected" %}</span>
+                </div>
+                <button class="it-btn it-btn-small" type="button" data-close-basket>{% trans "Close" %}</button>
+            </header>
+            <div class="basket-drawer-body">
+                <div class="it-empty-row" data-cart-empty>{% trans "No items selected. Use Add in the catalogue table." %}</div>
+                <div class="it-table-wrap" data-cart-wrap hidden>
+                    <table class="it-table">
+                        <thead><tr><th scope="col">{% trans "Item" %}</th><th scope="col">{% trans "Quantity" %}</th><th scope="col" class="it-actions"><span class="loan-sr-only">{% trans "Remove" %}</span></th></tr></thead>
+                        <tbody data-cart-body></tbody>
+                    </table>
+                </div>
+            </div>
+            <footer class="it-basket-footer">
+                <span>{% trans "Total quantity" %} <strong data-cart-total>0</strong></span>
+                <button class="it-btn it-btn-primary" type="button" data-scroll-to-details>{% trans "Continue to request details" %}</button>
+            </footer>
         </div>
-        <div class="it-basket-footer">
-            <span>{% trans "Total quantity" %} <strong data-cart-total>0</strong></span>
-            <button class="it-btn it-btn-primary" type="button" data-scroll-to-details>{% trans "Continue to request details" %}</button>
-        </div>
-    </section>
+    </dialog>
 
     <section class="it-panel" id="request-details" aria-labelledby="request-details-heading">
         <header class="it-panel-head">
@@ -102,6 +109,7 @@
         </header>
         <div class="it-details-grid">
             <div class="it-form">
+                <div class="loan-form-error" role="alert" data-request-error hidden></div>
                 <h3 class="it-form-section">{% trans "Contact" %}</h3>
                 <div class="it-form-grid">
                     <div class="loan-field">
@@ -166,7 +174,6 @@
                     <p class="signature-help">{% trans "Sign with a mouse, finger or stylus. Your signature is stored with the request." %}</p>
                 </div>
 
-                <div class="loan-form-error" role="alert" data-request-error hidden></div>
                 <div class="loan-success" role="status" data-request-success hidden></div>
                 <div class="it-form-actions">
                     <button class="it-btn it-btn-primary" type="button" data-request-submit>{% trans "Send request" %}</button>

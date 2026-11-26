@@ -120,7 +120,7 @@ to the dashboard widget list, and a **Loan Manager** spotlight action.
 
 - **Request equipment** (`/plugin/loan/request/`) is the public catalogue.
   It requires no account. It uses an InvenTree-style table with category tabs,
-  search, barcode input, pagination, and a request basket. Requesters open item
+  search, barcode input, pagination, and a request drawer. Requesters open item
   details, choose available stock, enter their contact details, sign, and
   submit. The confirmation shows the reference code, tracking link, and a
   printable request receipt.
