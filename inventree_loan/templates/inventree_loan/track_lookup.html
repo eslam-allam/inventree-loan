@@ -2,7 +2,7 @@
 {% load i18n %}
 {% block title %}{% trans "Track a request" %}{% endblock %}
 {% block content %}
-<div class="it-breadcrumb"><a href="{% url 'plugin:loan:request_new' %}">{% trans "Request equipment" %}</a> / {% trans "Track a request" %}</div>
+<div class="it-breadcrumb"><a href="{{ public_request_url }}">{% trans "Request equipment" %}</a> / {% trans "Track a request" %}</div>
 
 <header class="it-page-head">
     <div>
@@ -27,7 +27,7 @@
         </div>
         <div class="it-form-actions">
             <button class="it-btn it-btn-primary" type="submit">{% trans "Find my request" %}</button>
-            <a class="it-btn" href="{% url 'plugin:loan:request_new' %}">{% trans "New request" %}</a>
+            <a class="it-btn" href="{{ public_request_url }}">{% trans "New request" %}</a>
         </div>
     </form>
 </section>

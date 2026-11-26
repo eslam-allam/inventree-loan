@@ -97,6 +97,16 @@ urlpatterns = [
         _function_view("inventree_loan.views", "pickup_qr"),
         name="pickup_qr",
     ),
+    path(
+        "pickups/<int:pk>/return-sheet/",
+        _function_view("inventree_loan.views", "pickup_return_sheet"),
+        name="pickup_return_sheet",
+    ),
+    path(
+        "pickups/<int:pk>/items/<int:stock_item_id>/qr.svg",
+        _function_view("inventree_loan.views", "pickup_item_qr"),
+        name="pickup_item_qr",
+    ),
     path("checkout/", _function_view("inventree_loan.views", "checkout"), name="checkout"),
     path("return/", _function_view("inventree_loan.views", "return_page"), name="return"),
     path("history/", _function_view("inventree_loan.views", "history"), name="history"),
@@ -258,4 +268,11 @@ urlpatterns = [
         name="api_export_loans",
     ),
     path("qr/<int:pk>.svg", _class_view("inventree_loan.api.views", "QRCodeView"), name="qr"),
+    # Configurable public request path. Keep this last so every static route
+    # above takes precedence.
+    path(
+        "<str:slug>/",
+        _function_view("inventree_loan.views", "public_request_slug", auth_exempt=True),
+        name="public_request_slug",
+    ),
 ]

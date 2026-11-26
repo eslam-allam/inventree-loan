@@ -17,7 +17,7 @@
 
 <header class="ext-header">
     <div class="ext-header-inner">
-        <a class="ext-brand" href="{% if can_request %}{% url 'plugin:loan:request_new' %}{% else %}{% url 'plugin:loan:requests' %}{% endif %}">
+        <a class="ext-brand" href="{% if can_request %}{{ public_request_url }}{% else %}{% url 'plugin:loan:requests' %}{% endif %}">
             <img class="ext-logo" src="{% static 'web/inventree.svg' %}" alt="InvenTree" width="28" height="28" fetchpriority="high">
             <span class="ext-brand-text">
                 <span class="ext-brand-name">{% trans "Loan desk" %}</span>
@@ -27,7 +27,7 @@
 
         <nav class="ext-nav" aria-label="{% trans 'Loan request navigation' %}">
             {% if can_request %}
-                <a class="ext-nav-link {% if page == 'request-new' %}is-active{% endif %}" href="{% url 'plugin:loan:request_new' %}">{% trans "Request equipment" %}</a>
+                <a class="ext-nav-link {% if page == 'request-new' %}is-active{% endif %}" href="{{ public_request_url }}">{% trans "Request equipment" %}</a>
             {% endif %}
             {% if not is_authenticated %}
                 <a class="ext-nav-link {% if page == 'track-lookup' %}is-active{% endif %}" href="{% url 'plugin:loan:public_track_lookup' %}">{% trans "Track a request" %}</a>

@@ -665,6 +665,7 @@ def create_request(
     signature: str = "",
     allow_anonymous: bool = False,
     require_signature: bool = True,
+    purpose_required: bool = True,
 ) -> LoanRequest:
     """Create a loan request with validated lines.
 
@@ -703,7 +704,7 @@ def create_request(
         raise ValidationError(
             {"responsibility_ack": _("Please acknowledge the loan responsibility statement")}
         )
-    if not (purpose or "").strip():
+    if purpose_required and not (purpose or "").strip():
         raise ValidationError({"purpose": _("Please describe the purpose of the loan")})
 
     require_signature = require_signature and bool(

@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 from InvenTree.unit_test import InvenTreeAPITestCase
 from part.models import Part, PartCategory
@@ -167,7 +168,26 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         self.assertEqual(qr.status_code, 200)
         self.assertEqual(qr["Content-Type"], "image/svg+xml")
 
+        sheet = self.client.get(pickup["return_sheet_url"])
+        self.assertEqual(sheet.status_code, 200)
+        self.assertContains(sheet, pickup["reference"])
+        self.assertContains(sheet, self.request.reference)
+
         from inventree_loan.models import LoanPickup
+        from inventree_loan.models import LoanRequestAllocation
+
+        allocation = LoanRequestAllocation.objects.filter(
+            line__request=self.request
+        ).first()
+        item_qr = self.client.get(
+            reverse(
+                "plugin:loan:pickup_item_qr",
+                args=[pickup["pk"], allocation.stock_item_id],
+            )
+        )
+        self.assertEqual(item_qr.status_code, 200)
+        self.assertEqual(item_qr["Content-Type"], "image/svg+xml")
+
         from inventree_loan.services.barcode import pickup_payload, resolve_barcode
 
         scanned = resolve_barcode(
@@ -176,6 +196,12 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         )
         self.assertEqual(scanned["type"], "pickup")
         self.assertEqual(scanned["data"]["request_pk"], self.request.pk)
+
+        request_scan = resolve_barcode(
+            self.approver, self.request.reference
+        )
+        self.assertEqual(request_scan["type"], "request")
+        self.assertEqual(request_scan["data"]["pk"], self.request.pk)
 
     def test_anonymous_request_tracking_and_receipt(self):
         created = create_request(
@@ -256,6 +282,77 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
                 responsibility_ack=True,
                 signature=TEST_SIGNATURE,
             )
+
+    def test_public_request_slug_setting(self):
+        def fake_setting(key, default=None):
+            if key == "PUBLIC_REQUEST_SLUG":
+                return "borrow"
+            return default
+
+        with patch("inventree_loan.config.get_setting", side_effect=fake_setting):
+            response = self.client.get("/plugin/loan/borrow/")
+            self.assertEqual(response.status_code, 200)
+            legacy = self.client.get("/plugin/loan/request/")
+            self.assertEqual(legacy.status_code, 302)
+            self.assertIn("/plugin/loan/borrow/", legacy["Location"])
+
+    def test_public_form_fields_can_be_hidden(self):
+        def fake_setting(key, default=None):
+            if key == "PUBLIC_FIELD_PHONE":
+                return "hidden"
+            if key == "PUBLIC_FIELD_PURPOSE":
+                return "hidden"
+            return default
+
+        with patch("inventree_loan.config.get_setting", side_effect=fake_setting):
+            response = self.client.get("/plugin/loan/request/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'id="requester_phone"')
+        self.assertNotContains(response, 'id="purpose"')
+        self.assertContains(response, 'id="requester_name"')
+
+    def test_public_form_optional_purpose_can_be_blank(self):
+        def fake_setting(key, default=None):
+            if key == "PUBLIC_FIELD_PURPOSE":
+                return "hidden"
+            return default
+
+        with patch("inventree_loan.config.get_setting", side_effect=fake_setting):
+            response = self.client.post(
+                "/plugin/loan/api/public/requests/",
+                {
+                    "requester_name": "Anon",
+                    "requester_email": "anon@example.com",
+                    "signature": TEST_SIGNATURE,
+                    "responsibility_ack": True,
+                    "lines": [{"part_id": self.part.pk, "quantity": 1}],
+                },
+                format="json",
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], LoanRequestStatus.PENDING)
+
+    def test_public_form_required_field_setting(self):
+        from inventree_loan.api.serializers import PublicRequestCreateSerializer
+
+        def fake_setting(key, default=None):
+            if key == "PUBLIC_FIELD_PHONE":
+                return "required"
+            return default
+
+        with patch("inventree_loan.config.get_setting", side_effect=fake_setting):
+            serializer = PublicRequestCreateSerializer(
+                data={
+                    "requester_name": "Anon",
+                    "requester_email": "anon@example.com",
+                    "purpose": "Test",
+                    "responsibility_ack": True,
+                    "signature": TEST_SIGNATURE,
+                    "lines": [{"part_id": self.part.pk, "quantity": 1}],
+                }
+            )
+            self.assertFalse(serializer.is_valid())
+        self.assertIn("requester_phone", serializer.errors)
 
     def test_public_part_detail_hides_stock_items(self):
         response = self.client.get(

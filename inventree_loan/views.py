@@ -13,8 +13,15 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import http_date
 
-from .config import get_native_management_url, get_native_request_url, get_setting
-from .models import Loan, LoanPickup, LoanRequest
+from .config import (
+    get_native_management_url,
+    get_native_request_url,
+    get_public_field_config,
+    get_public_request_slug,
+    get_public_request_url,
+    get_setting,
+)
+from .models import Loan, LoanPickup, LoanRequest, LoanRequestAllocation
 from .permissions import (
     can_handout,
     can_manage_staff,
@@ -29,7 +36,11 @@ from .selectors import (
     visible_loans,
     visible_requests,
 )
-from .services.barcode import generate_qr_svg_payload, pickup_payload
+from .services.barcode import (
+    generate_qr_svg_payload,
+    pickup_payload,
+    stock_item_qr_payload,
+)
 from .services.requests import catalog_categories, catalog_part_count
 from .services.setup import is_configured
 from .utils import local_today
@@ -85,6 +96,13 @@ def _base_context(request, page: str, **extra) -> dict:
         "allow_anonymous_requests": bool(get_setting("ALLOW_ANONYMOUS_REQUESTS", True)),
         "setup_configured": is_configured(),
         "base_template": "inventree_loan/base_external.html",
+        "public_request_url": get_public_request_url(),
+        "require_responsibility_ack": bool(
+            get_setting("REQUIRE_RESPONSIBILITY_ACK", True)
+        ),
+        "require_request_signature": bool(
+            get_setting("REQUIRE_REQUEST_SIGNATURE", True)
+        ),
         "loan_duration_days": int(get_setting("LOAN_DURATION_DAYS", 14) or 14),
         "due_soon_days": int(get_setting("DUE_SOON_DAYS", 2) or 2),
         "allow_direct_checkout": bool(get_setting("ALLOW_DIRECT_CHECKOUT", True)),
@@ -108,12 +126,8 @@ def dashboard(request):
     return redirect(_standard_admin_url())
 
 
-def request_new(request):
-    """Public requester form.
-
-    The page intentionally does not require an InvenTree account.  Anonymous
-    requesters provide their own name, email, phone and signature.
-    """
+def _render_request_new(request):
+    """Render the public requester form at the configured path."""
     if not request.user.is_authenticated and not get_setting(
         "ALLOW_ANONYMOUS_REQUESTS", True
     ):
@@ -131,11 +145,26 @@ def request_new(request):
         public_mode=not request.user.is_authenticated,
         categories=catalog_categories(),
         catalog_total=catalog_part_count(),
+        public_fields=get_public_field_config(),
     )
     # The public form is available to everyone; the old group restriction only
     # applies to the authenticated account pages.
     context["can_request"] = True
     return render(request, "inventree_loan/request_form.html", context)
+
+
+def request_new(request):
+    """Public requester form, redirecting to the configured public path."""
+    if get_public_request_slug() != "request":
+        return redirect(get_public_request_url())
+    return _render_request_new(request)
+
+
+def public_request_slug(request, slug):
+    """Serve the public requester form at the configured slug."""
+    if slug != get_public_request_slug():
+        raise Http404
+    return _render_request_new(request)
 
 
 def public_track_lookup(request):
@@ -246,6 +275,106 @@ def pickup_qr(request, pk):
         raise PermissionDenied("You cannot view this pickup box")
     response = HttpResponse(
         generate_qr_svg_payload(pickup_payload(pickup)),
+        content_type="image/svg+xml",
+    )
+    response["Cache-Control"] = "private, max-age=3600"
+    return response
+
+
+@login_required
+def pickup_return_sheet(request, pk):
+    """Printable box contents sheet with one return QR per stock item."""
+    pickup = get_object_or_404(
+        LoanPickup.objects.select_related("request", "request__requester"),
+        pk=pk,
+    )
+    if not can_view_all(request.user):
+        raise PermissionDenied("You cannot view this pickup box")
+    request_obj = pickup.request
+    loan = Loan.objects.filter(request=request_obj).first()
+    rows = {}
+
+    if loan is not None:
+        for item in loan.items.select_related("part", "stock_item"):
+            if item.stock_item_id is None:
+                continue
+            row = rows.setdefault(
+                item.stock_item_id,
+                {
+                    "stock_item_id": item.stock_item_id,
+                    "part_name": item.part.name,
+                    "ipn": item.part.IPN or "",
+                    "asset": item.stock_item_label,
+                    "serial": getattr(item.stock_item, "serial", "") or "",
+                    "quantity": 0,
+                    "allocated": True,
+                },
+            )
+            row["quantity"] += item.quantity
+    else:
+        allocations = LoanRequestAllocation.objects.filter(
+            line__request=request_obj
+        ).select_related("stock_item", "stock_item__part", "line__part")
+        for allocation in allocations:
+            stock_item = allocation.stock_item
+            row = rows.setdefault(
+                stock_item.pk,
+                {
+                    "stock_item_id": stock_item.pk,
+                    "part_name": allocation.line.part.name,
+                    "ipn": allocation.line.part.IPN or "",
+                    "asset": str(stock_item),
+                    "serial": stock_item.serial or "",
+                    "quantity": 0,
+                    "allocated": True,
+                },
+            )
+            row["quantity"] += allocation.quantity
+
+    for line in request_obj.lines.select_related("part"):
+        outstanding = line.unallocated_quantity
+        if outstanding > 0:
+            rows[f"line-{line.pk}"] = {
+                "stock_item_id": None,
+                "part_name": line.part.name,
+                "ipn": line.part.IPN or "",
+                "asset": "Not allocated",
+                "serial": "",
+                "quantity": outstanding,
+                "allocated": False,
+            }
+
+    return render(
+        request,
+        "inventree_loan/pickup_return_sheet.html",
+        {
+            "pickup": pickup,
+            "request_obj": request_obj,
+            "loan": loan,
+            "rows": list(rows.values()),
+            "box_qr_url": reverse("plugin:loan:pickup_qr", args=[pickup.pk]),
+        },
+    )
+
+
+@login_required
+def pickup_item_qr(request, pk, stock_item_id):
+    """Return a QR for one stock item inside a pickup box."""
+    pickup = get_object_or_404(LoanPickup, pk=pk)
+    if not can_view_all(request.user):
+        raise PermissionDenied("You cannot view this pickup box")
+    from stock.models import StockItem
+
+    stock_item = get_object_or_404(StockItem, pk=stock_item_id)
+    allowed = LoanRequestAllocation.objects.filter(
+        line__request=pickup.request, stock_item=stock_item
+    ).exists() or (
+        Loan.objects.filter(request=pickup.request, items__stock_item=stock_item).exists()
+    )
+    if not allowed:
+        raise Http404
+    response = HttpResponse(
+        generate_qr_svg_payload(stock_item_qr_payload(stock_item)),
         content_type="image/svg+xml",
     )
     response["Cache-Control"] = "private, max-age=3600"

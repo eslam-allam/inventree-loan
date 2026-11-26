@@ -840,6 +840,8 @@
 
         submit?.addEventListener('click', async (event) => {
             event.preventDefault();
+            const requireAck = root.dataset.requireAck === 'true';
+            const requireSignature = root.dataset.requireSignature === 'true';
             clearError(errorBox);
             $$('.field-error', root).forEach((error) => error.remove());
             $$('[aria-invalid="true"]', root).forEach((field) => clearFieldError(field));
@@ -870,9 +872,32 @@
             if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
                 return fail('Enter a valid email address.', $('#requester_email'));
             }
-            if (!purpose) return fail('Describe what you will use the items for.', $('#purpose'));
-            if (!acknowledged) return fail('Accept the responsibility statement to continue.', $('#responsibility_ack'));
-            if (!signatureValue) return fail('Sign the request before sending it.', signatureCanvas);
+            const purposeField = $('#purpose');
+            if (purposeField?.required && !purpose) {
+                return fail('Describe what you will use the items for.', purposeField);
+            }
+            const handledRequired = new Set([
+                $('#requester_name'),
+                $('#requester_email'),
+                purposeField
+            ]);
+            for (const field of $$('#request-details [required]', root)) {
+                if (field.type === 'checkbox' || handledRequired.has(field)) continue;
+                if (!String(field.value || '').trim()) {
+                    const label = field
+                        .closest('.loan-field')
+                        ?.querySelector('label')
+                        ?.textContent?.replace('*', '')
+                        .trim();
+                    return fail(`${label || 'This field'} is required.`, field);
+                }
+            }
+            if (requireAck && !acknowledged) {
+                return fail('Accept the responsibility statement to continue.', $('#responsibility_ack'));
+            }
+            if (requireSignature && !signatureValue) {
+                return fail('Sign the request before sending it.', signatureCanvas);
+            }
             if (neededBy && returnBy && returnBy < neededBy) {
                 return fail('Choose a return date on or after the pickup date.', $('#return_by'));
             }

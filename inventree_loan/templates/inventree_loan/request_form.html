@@ -2,7 +2,7 @@
 {% load i18n %}
 {% block title %}{% trans "Request equipment" %}{% endblock %}
 {% block content %}
-<div class="catalog-page" data-public-request>
+<div class="catalog-page" data-public-request data-require-ack="{% if require_responsibility_ack %}true{% else %}false{% endif %}" data-require-signature="{% if require_request_signature %}true{% else %}false{% endif %}">
     <nav class="it-breadcrumb" aria-label="{% trans 'Breadcrumb' %}">
         <a href="/web/" translate="no">InvenTree</a> / <span aria-current="page">{% trans "Request equipment" %}</span>
     </nav>
@@ -132,54 +132,74 @@
                         <label class="loan-label" for="requester_email">{% trans "Email" %} <span class="loan-required">*</span></label>
                         <input class="loan-input" id="requester_email" name="requester_email" type="email" maxlength="254" autocomplete="email" required value="{{ requester_email }}">
                     </div>
+                    {% if public_fields.phone != 'hidden' %}
                     <div class="loan-field">
-                        <label class="loan-label" for="requester_phone">{% trans "Phone" %}</label>
-                        <input class="loan-input" id="requester_phone" name="requester_phone" type="tel" maxlength="50" autocomplete="tel">
+                        <label class="loan-label" for="requester_phone">{% trans "Phone" %}{% if public_fields.phone == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
+                        <input class="loan-input" id="requester_phone" name="requester_phone" type="tel" maxlength="50" autocomplete="tel"{% if public_fields.phone == 'required' %} required{% endif %}>
                     </div>
+                    {% endif %}
+                    {% if public_fields.organization != 'hidden' %}
                     <div class="loan-field">
-                        <label class="loan-label" for="requester_organization">{% trans "Organization or department" %}</label>
-                        <input class="loan-input" id="requester_organization" name="requester_organization" maxlength="255" autocomplete="organization">
+                        <label class="loan-label" for="requester_organization">{% trans "Organization or department" %}{% if public_fields.organization == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
+                        <input class="loan-input" id="requester_organization" name="requester_organization" maxlength="255" autocomplete="organization"{% if public_fields.organization == 'required' %} required{% endif %}>
                     </div>
+                    {% endif %}
+                    {% if public_fields.identifier != 'hidden' %}
                     <div class="loan-field">
-                        <label class="loan-label" for="requester_identifier">{% trans "Student or employee ID" %}</label>
-                        <input class="loan-input" id="requester_identifier" name="requester_identifier" maxlength="100" autocomplete="off">
+                        <label class="loan-label" for="requester_identifier">{% trans "Student or employee ID" %}{% if public_fields.identifier == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
+                        <input class="loan-input" id="requester_identifier" name="requester_identifier" maxlength="100" autocomplete="off"{% if public_fields.identifier == 'required' %} required{% endif %}>
                     </div>
+                    {% endif %}
+                    {% if public_fields.project != 'hidden' %}
                     <div class="loan-field">
-                        <label class="loan-label" for="project">{% trans "Project or course" %}</label>
-                        <input class="loan-input" id="project" name="project" maxlength="255" autocomplete="off">
+                        <label class="loan-label" for="project">{% trans "Project or course" %}{% if public_fields.project == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
+                        <input class="loan-input" id="project" name="project" maxlength="255" autocomplete="off"{% if public_fields.project == 'required' %} required{% endif %}>
                     </div>
+                    {% endif %}
                 </div>
 
+                {% if public_fields.pickup_date != 'hidden' or public_fields.return_date != 'hidden' %}
                 <h3 class="it-form-section">{% trans "Loan period" %}</h3>
                 <div class="it-form-grid">
+                    {% if public_fields.pickup_date != 'hidden' %}
                     <div class="loan-field">
-                        <label class="loan-label" for="needed_by">{% trans "Pickup date" %} <span class="loan-required">*</span></label>
-                        <input class="loan-input" type="date" id="needed_by" name="needed_by" value="{{ today|date:'Y-m-d' }}" required>
+                        <label class="loan-label" for="needed_by">{% trans "Pickup date" %}{% if public_fields.pickup_date == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
+                        <input class="loan-input" type="date" id="needed_by" name="needed_by" value="{{ today|date:'Y-m-d' }}"{% if public_fields.pickup_date == 'required' %} required{% endif %}>
                     </div>
+                    {% endif %}
+                    {% if public_fields.return_date != 'hidden' %}
                     <div class="loan-field">
-                        <label class="loan-label" for="return_by">{% trans "Return by" %} <span class="loan-required">*</span></label>
-                        <input class="loan-input" type="date" id="return_by" name="return_by" value="{{ default_return|date:'Y-m-d' }}" required>
+                        <label class="loan-label" for="return_by">{% trans "Return by" %}{% if public_fields.return_date == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
+                        <input class="loan-input" type="date" id="return_by" name="return_by" value="{{ default_return|date:'Y-m-d' }}"{% if public_fields.return_date == 'required' %} required{% endif %}>
                     </div>
+                    {% endif %}
                 </div>
+                {% endif %}
 
+                {% if public_fields.purpose != 'hidden' or public_fields.notes != 'hidden' %}
                 <h3 class="it-form-section">{% trans "Purpose" %}</h3>
+                {% if public_fields.purpose != 'hidden' %}
                 <div class="loan-field">
-                    <label class="loan-label" for="purpose">{% trans "What will you use it for?" %} <span class="loan-required">*</span></label>
-                    <input class="loan-input" id="purpose" name="purpose" required maxlength="500" autocomplete="off">
+                    <label class="loan-label" for="purpose">{% trans "What will you use it for?" %}{% if public_fields.purpose == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
+                    <input class="loan-input" id="purpose" name="purpose"{% if public_fields.purpose == 'required' %} required{% endif %} maxlength="500" autocomplete="off">
                 </div>
+                {% endif %}
+                {% if public_fields.notes != 'hidden' %}
                 <div class="loan-field">
-                    <label class="loan-label" for="notes">{% trans "Additional notes" %}</label>
-                    <textarea class="loan-textarea" id="notes" name="notes" rows="3" autocomplete="off"></textarea>
+                    <label class="loan-label" for="notes">{% trans "Additional notes" %}{% if public_fields.notes == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
+                    <textarea class="loan-textarea" id="notes" name="notes" rows="3" autocomplete="off"{% if public_fields.notes == 'required' %} required{% endif %}></textarea>
                 </div>
+                {% endif %}
+                {% endif %}
                 <label class="loan-check">
-                    <input type="checkbox" id="responsibility_ack" name="responsibility_ack" required>
-                    <span>{% trans "I agree to return the items by the due date and accept responsibility for loss or damage." %}</span>
+                    <input type="checkbox" id="responsibility_ack" name="responsibility_ack"{% if require_responsibility_ack %} required{% endif %}>
+                    <span>{% trans "I agree to return the items by the due date and accept responsibility for loss or damage." %}{% if require_responsibility_ack %} <span class="loan-required">*</span>{% endif %}</span>
                 </label>
 
                 <h3 class="it-form-section">{% trans "Signature" %}</h3>
                 <div class="signature-field">
                     <div class="signature-head">
-                        <span class="loan-label">{% trans "Sign below" %} <span class="loan-required">*</span></span>
+                        <span class="loan-label">{% trans "Sign below" %}{% if require_request_signature %} <span class="loan-required">*</span>{% endif %}</span>
                         <button class="it-btn it-btn-small" type="button" data-signature-clear>{% trans "Clear" %}</button>
                     </div>
                     <canvas class="signature-canvas" data-signature-canvas aria-label="{% trans 'Sign with a mouse, finger or stylus' %}"></canvas>

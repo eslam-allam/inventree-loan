@@ -34,7 +34,12 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
-from ..config import get_frontend_base, get_setting
+from ..config import (
+    get_frontend_base,
+    get_public_field_config,
+    get_public_request_url,
+    get_setting,
+)
 from ..models import (
     Loan,
     LoanEvent,
@@ -562,6 +567,9 @@ def _pickup_data(pickup: LoanPickup | None) -> dict | None:
         "ready_at": _iso(pickup.ready_at),
         "collected_at": _iso(pickup.collected_at),
         "label_url": reverse("plugin:loan:pickup_label", args=[pickup.pk]),
+        "return_sheet_url": reverse(
+            "plugin:loan:pickup_return_sheet", args=[pickup.pk]
+        ),
         "qr_url": reverse("plugin:loan:pickup_qr", args=[pickup.pk]),
     }
 
@@ -971,6 +979,8 @@ class PublicRequestCreateView(APIView):
                 signature=data.get("signature", ""),
                 allow_anonymous=True,
                 require_signature=True,
+                purpose_required=get_public_field_config().get("purpose")
+                == "required",
             )
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
@@ -1508,6 +1518,7 @@ class StatsView(LoanAPIView):
             "can_manage_staff": can_manage_staff(request.user),
             "can_request": can_request(request.user),
             "role": get_user_role(request.user),
+            "public_request_url": get_public_request_url(),
         })
 
 

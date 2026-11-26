@@ -604,9 +604,35 @@ body.loan-body {
 .loan-pickup-label-foot p { margin: 2px 0; }
 .loan-pickup-label-foot p:last-child { font-family: var(--loan-mono); font-weight: 700; color: #0f172a; }
 
+/* Box contents / return sheet */
+.loan-return-sheet {
+    max-width: 900px;
+    margin: 18px auto 40px;
+    padding: 30px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    color: #0f172a;
+    box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
+}
+.loan-return-sheet-head { display: flex; justify-content: space-between; gap: 24px; border-bottom: 2px solid #0f172a; padding-bottom: 14px; }
+.loan-return-sheet h1 { margin: 2px 0 4px; font-size: 26px; letter-spacing: -0.03em; }
+.loan-return-sheet-ref { margin: 0; font-family: var(--loan-mono); font-size: 22px; font-weight: 800; }
+.loan-return-sheet-name { margin: 3px 0 0; color: #475569; font-size: 14px; font-weight: 650; }
+.loan-return-sheet-box-qr { width: 108px; height: 108px; }
+.loan-return-sheet-meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+.loan-return-sheet-meta span { display: block; color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+.loan-return-sheet-meta strong { display: block; margin-top: 2px; font-size: 13px; }
+.loan-return-sheet-note { margin: 14px 0; padding: 10px 12px; border-radius: 7px; background: #f1f5f9; color: #334155; font-size: 12px; }
+.loan-return-sheet-table td { vertical-align: middle; }
+.loan-return-item-qr { display: block; width: 76px; height: 76px; }
+.loan-return-checkbox { display: inline-block; width: 18px; height: 18px; border: 1.5px solid #94a3b8; border-radius: 3px; }
+.loan-return-sheet-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 10px; border-top: 1px solid #cbd5e1; color: #64748b; font-family: var(--loan-mono); font-size: 10px; }
+
 @media print {
     .loan-pickup-label { max-width: none; width: 100%; margin: 0; padding: 0; border: 0; box-shadow: none; }
     .loan-pickup-qr { width: 44mm; height: 44mm; flex-basis: 44mm; }
+    .loan-return-sheet { max-width: none; width: 100%; margin: 0; padding: 0; border: 0; box-shadow: none; }
 }
 
 

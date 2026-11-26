@@ -40,7 +40,7 @@ window.LOAN = {
     urls: {
         dashboard: "{% url 'plugin:loan:dashboard' %}",
         requests: "{% url 'plugin:loan:requests' %}",
-        requestNew: "{% url 'plugin:loan:request_new' %}",
+        requestNew: "{{ public_request_url }}",
         requestDetail: "{% url 'plugin:loan:requests' %}",
         loans: "{% url 'plugin:loan:loans' %}",
         loanDetail: "{% url 'plugin:loan:loans' %}",

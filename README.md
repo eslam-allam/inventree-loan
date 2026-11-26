@@ -18,7 +18,8 @@ a role-aware interface for requesters and loan desk staff.
 - Approved requests can be packed into a **pickup box or bag** with its own
   reference and QR code, then moved to **Ready for pickup**. The box label is
   printable and shows the box reference, request reference, requester, contents
-  and a scannable QR code.
+  and a scannable QR code. A separate printable return sheet gives every packed
+  stock item its own QR code for fast return counting.
 - The admin console has a **View** action for every request, showing requester
   details, purpose, dates, requested items, notes and the submitted signature
   before approval or handout.
@@ -40,6 +41,11 @@ a role-aware interface for requesters and loan desk staff.
   include the QR, references, due date and captured signatures where relevant.
 - Barcode scanning supports USB/keyboard scanners and camera scanning where the
   browser exposes `BarcodeDetector`.
+- The internal console has a context-aware **Scan** action: scan a pickup box,
+  request, loan, stock item or part and it offers the relevant handout, return or
+  detail action.
+- The public request path and the visibility/required state of public form fields
+  are configurable from plugin settings.
 - Optional email notifications for submitted, approved/rejected, ready for
   pickup, handout, partial return and returned events; in-app notifications are
   always available.
@@ -151,6 +157,15 @@ to the dashboard widget list, and a **Loan Manager** spotlight action.
   **Open loan desk** button which opens the same native page.
 - The plugin settings page (Admin Center → Plugins → InvenTree Loan Manager)
   uses the same native console for initial setup.
+- **Public request path**: plugin setting `Public request path` changes the
+  public form from `/plugin/loan/request/` to `/plugin/loan/<slug>/`. The old
+  path redirects to the configured one. A full custom domain can be added later
+  with a reverse proxy.
+- **Public form fields**: phone, organization, ID, project, purpose, notes,
+  pickup date and return date can each be **Hidden**, **Optional** or
+  **Required** from plugin settings. Name and email remain required for tracking
+  and notifications. Signature and responsibility acknowledgement remain
+  controlled by their existing toggles.
 
 The native console adapts to the signed-in user's loan role: requesters see
 their own requests and loans, while loan staff additionally see the handout,
@@ -265,6 +280,11 @@ provided, and can follow the request through their tracking link.
 The box reference and name are shown on the request page. The pickup box is
 marked **Collected** automatically when the request is handed out.
 
+Use **Print return sheet** to print the A4 contents sheet. It lists every
+allocated stock item with its own QR code. Keep it with the box; on return, scan
+each item QR in the return counter. Serialized QRs count one unit, while bulk
+item QRs count the outstanding quantity for that stock item.
+
 ### Hand out
 
 1. Open the **Handout** tab in the Loan Manager console, or open the request
@@ -354,6 +374,8 @@ The scanner accepts:
 | Loanable part category | — | Restrict requests to a category tree |
 | Request group | — | Restrict signed-in users on the account pages; public requests remain open |
 | Default loan duration | 14 days | Default pickup-to-return period |
+| Public request path | `request` | Public form URL segment under `/plugin/loan/` |
+| Public form fields | mixed | Hidden / optional / required per field |
 | Due soon reminder | 2 days | Reminder lead time |
 | Overdue reminder interval | 1 day | Repeat interval for overdue notices |
 | Max active loans per user | 0 | 0 means unlimited |

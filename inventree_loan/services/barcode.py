@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import uuid
 
 from django.utils.translation import gettext_lazy as _
 
 from ..config import get_setting
-from ..models import Loan, LoanItem, LoanPickup
+from ..models import Loan, LoanItem, LoanPickup, LoanRequest
 from ..permissions import can_view_all, can_view_loan
 
 
@@ -38,6 +39,11 @@ def parse_loan_token(barcode: str):
         return uuid.UUID(str(value))
     except (ValueError, TypeError, AttributeError):
         return None
+
+
+def stock_item_qr_payload(stock_item) -> str:
+    """Return a QR payload that resolves to one stock item."""
+    return json.dumps({"stockitem": stock_item.pk}, separators=(",", ":"))
 
 
 def pickup_payload(pickup: LoanPickup) -> str:
@@ -73,6 +79,51 @@ def parse_pickup_token(barcode: str):
         return None
 
 
+def _request_payload(loan_request, user) -> dict:
+    loan = Loan.objects.filter(request=loan_request).first()
+    pickup = getattr(loan_request, "pickup", None)
+    return {
+        "pk": loan_request.pk,
+        "reference": loan_request.reference,
+        "status": loan_request.status,
+        "status_display": loan_request.get_status_display(),
+        "requester": loan_request.requester_display,
+        "item_count": loan_request.item_count,
+        "pickup_reference": pickup.reference if pickup else "",
+        "loan_pk": loan.pk if loan else None,
+        "loan_reference": loan.reference if loan else "",
+        "loan_is_open": bool(loan and loan.is_open),
+    }
+
+
+def _resolve_request_barcode(barcode: str, user):
+    """Resolve a request reference or public/native request URL."""
+    value = (barcode or "").strip()
+    loan_request = None
+    uuid_match = re.search(r"/track/([0-9a-fA-F-]{36})/?", value)
+    if uuid_match:
+        try:
+            token = uuid.UUID(uuid_match.group(1))
+            loan_request = LoanRequest.objects.filter(public_token=token).first()
+        except (ValueError, TypeError):
+            loan_request = None
+    if loan_request is None:
+        path_match = re.search(r"/plugin/loan/requests/(\d+)", value)
+        if path_match:
+            loan_request = LoanRequest.objects.filter(pk=int(path_match.group(1))).first()
+    if loan_request is None and re.fullmatch(r"REQ-\d{4}-\d{4,}", value, re.I):
+        loan_request = LoanRequest.objects.filter(reference__iexact=value).first()
+    if loan_request is None:
+        return None
+    if not (can_view_all(user) or loan_request.requester_id == getattr(user, "id", None)):
+        return {"success": False, "error": str(_("You cannot view this request"))}
+    return {
+        "success": True,
+        "type": "request",
+        "data": _request_payload(loan_request, user),
+    }
+
+
 def _stock_payload(stock_item, user, full: bool = False) -> dict:
 
     active = (
@@ -100,6 +151,9 @@ def _stock_payload(stock_item, user, full: bool = False) -> dict:
     if active:
         data["loan_id"] = active.loan_id
         data["loan_reference"] = active.loan.reference
+        data["loan_status"] = active.loan.status
+        data["loan_status_display"] = active.loan.get_status_display()
+        data["loan_is_open"] = active.loan.is_open
         data["due_at"] = active.loan.due_at.isoformat()
         if full or can_view_all(user):
             data["borrower"] = str(active.loan.borrower)
@@ -143,6 +197,7 @@ def resolve_barcode(user, barcode: str) -> dict:
                 "error": str(_("You cannot view this pickup box")),
             }
         request = pickup.request
+        loan = Loan.objects.filter(request=request).first()
         return {
             "success": True,
             "type": "pickup",
@@ -157,8 +212,15 @@ def resolve_barcode(user, barcode: str) -> dict:
                 "request_status": request.status,
                 "requester": request.requester_display,
                 "item_count": request.item_count,
+                "loan_pk": loan.pk if loan else None,
+                "loan_reference": loan.reference if loan else "",
+                "loan_is_open": bool(loan and loan.is_open),
             },
         }
+
+    request_result = _resolve_request_barcode(barcode, user)
+    if request_result is not None:
+        return request_result
 
     token = parse_loan_token(barcode)
     if token:
@@ -183,6 +245,9 @@ def resolve_barcode(user, barcode: str) -> dict:
                 "borrower": str(loan.borrower) if can_view_all(user) else "",
                 "due_at": loan.due_at.isoformat(),
                 "is_overdue": loan.is_overdue,
+                "is_open": loan.is_open,
+                "request_pk": loan.request_id,
+                "request_reference": loan.request.reference if loan.request else "",
                 "items": [
                     {
                         "pk": item.pk,

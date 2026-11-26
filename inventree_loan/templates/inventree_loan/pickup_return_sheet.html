@@ -1,0 +1,79 @@
+{% load static i18n %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% trans "Box return sheet" %} {{ pickup.reference }}</title>
+    <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
+    <style>
+        @page { size: A4 portrait; margin: 12mm; }
+    </style>
+</head>
+<body class="loan-receipt-body">
+<div class="loan-receipt-actions">
+    <button class="loan-btn loan-btn-primary" type="button" onclick="window.print()">{% trans "Print return sheet" %}</button>
+    <a class="loan-btn" href="{% url 'plugin:loan:pickup_label' pickup.pk %}">{% trans "Print box label" %}</a>
+    <a class="loan-btn" href="{% url 'plugin:loan:request_detail' request_obj.pk %}">{% trans "Back to request" %}</a>
+</div>
+
+<main class="loan-return-sheet">
+    <header class="loan-return-sheet-head">
+        <div>
+            <p class="loan-eyebrow">{% trans "InvenTree Loan Manager" %}</p>
+            <h1>{% trans "Box contents / return sheet" %}</h1>
+            <p class="loan-return-sheet-ref">{{ pickup.reference }}</p>
+            {% if pickup.name %}<p class="loan-return-sheet-name">{{ pickup.name }}</p>{% endif %}
+        </div>
+        <img class="loan-return-sheet-box-qr" src="{{ box_qr_url }}" alt="{% trans 'Pickup box QR code' %}" width="108" height="108">
+    </header>
+
+    <section class="loan-return-sheet-meta">
+        <div><span>{% trans "Request" %}</span><strong>{{ request_obj.reference }}</strong></div>
+        <div><span>{% trans "Requester" %}</span><strong>{{ request_obj.requester_display }}</strong></div>
+        <div><span>{% trans "Pickup date" %}</span><strong>{{ request_obj.needed_by|date:"M j, Y"|default:"—" }}</strong></div>
+        <div><span>{% trans "Status" %}</span><strong>{{ pickup.get_status_display }}</strong></div>
+    </section>
+
+    <p class="loan-return-sheet-note">
+        {% trans "Keep this sheet with the box. On return, scan each item QR at the loan desk to count the returned items." %}
+    </p>
+
+    <table class="loan-table loan-return-sheet-table">
+        <thead>
+            <tr>
+                <th scope="col">{% trans "Return QR" %}</th>
+                <th scope="col">{% trans "Part" %}</th>
+                <th scope="col">{% trans "Asset / serial" %}</th>
+                <th scope="col">{% trans "Quantity" %}</th>
+                <th scope="col">{% trans "Present" %}</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>
+                    {% if row.stock_item_id %}
+                        <img class="loan-return-item-qr" src="{% url 'plugin:loan:pickup_item_qr' pickup.pk row.stock_item_id %}" alt="{% trans 'Item QR code' %}" width="76" height="76">
+                    {% else %}
+                        <span class="loan-muted">{% trans "No QR" %}</span>
+                    {% endif %}
+                </td>
+                <td><strong>{{ row.part_name }}</strong>{% if row.ipn %}<br><span class="loan-muted">{{ row.ipn }}</span>{% endif %}</td>
+                <td>{{ row.asset }}{% if row.serial %}<br><span class="loan-muted">{{ row.serial }}</span>{% endif %}</td>
+                <td>{{ row.quantity|floatformat:"-5" }}</td>
+                <td><span class="loan-return-checkbox" aria-hidden="true"></span></td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">{% trans "No items have been allocated to this box yet." %}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <footer class="loan-return-sheet-foot">
+        <span>{{ pickup.reference }} · {{ request_obj.reference }}</span>
+        <span>{% trans "Scan item QRs into the return counter." %}</span>
+    </footer>
+</main>
+</body>
+</html>

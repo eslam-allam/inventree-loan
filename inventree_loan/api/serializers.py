@@ -37,7 +37,34 @@ class PublicRequestCreateSerializer(RequestCreateSerializer):
 
     requester_name = serializers.CharField(max_length=150)
     requester_email = serializers.EmailField()
-    signature = serializers.CharField()
+    signature = serializers.CharField(
+        required=False, allow_blank=True, default=""
+    )
+
+    def validate(self, attrs):
+        """Enforce the configurable public form field requirements."""
+        from ..config import get_public_field_config
+
+        config = get_public_field_config()
+        required = {
+            "requester_phone": "phone",
+            "requester_organization": "organization",
+            "requester_identifier": "identifier",
+            "project": "project",
+            "purpose": "purpose",
+            "notes": "notes",
+        }
+        errors = {}
+        for field, key in required.items():
+            if config.get(key) == "required" and not str(attrs.get(field) or "").strip():
+                errors[field] = "This field is required."
+        if config.get("pickup_date") == "required" and not attrs.get("needed_by"):
+            errors["needed_by"] = "This field is required."
+        if config.get("return_date") == "required" and not attrs.get("return_by"):
+            errors["return_by"] = "This field is required."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
 
     def validate_lines(self, lines):
         """Public request quantities are whole units and never specific stock."""

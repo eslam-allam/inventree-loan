@@ -13,6 +13,7 @@
 <body class="loan-receipt-body">
 <div class="loan-receipt-actions">
     <button class="loan-btn loan-btn-primary" type="button" onclick="window.print()">{% trans "Print box label" %}</button>
+    <a class="loan-btn" href="{% url 'plugin:loan:pickup_return_sheet' pickup.pk %}">{% trans "Print return sheet" %}</a>
     <a class="loan-btn" href="{% url 'plugin:loan:request_detail' request_obj.pk %}">{% trans "Back to request" %}</a>
 </div>
 

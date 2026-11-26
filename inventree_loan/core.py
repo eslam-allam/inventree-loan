@@ -237,6 +237,63 @@ class InvenTreeLoanPlugin(
             "default": 20,
             "validator": int,
         },
+        "PUBLIC_REQUEST_SLUG": {
+            "name": _("Public request path"),
+            "description": _(
+                "One URL segment for the public request page. For example, "
+                "borrow gives /plugin/loan/borrow/. Leave as request for the default "
+                "path. Reserved segments such as track, requests and api are not allowed."
+            ),
+            "default": "request",
+        },
+        "PUBLIC_FIELD_PHONE": {
+            "name": _("Public form: phone"),
+            "description": _("Show or require the phone field on the public request form."),
+            "default": "optional",
+            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
+        },
+        "PUBLIC_FIELD_ORGANIZATION": {
+            "name": _("Public form: organization"),
+            "description": _("Show or require the organization field on the public request form."),
+            "default": "optional",
+            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
+        },
+        "PUBLIC_FIELD_IDENTIFIER": {
+            "name": _("Public form: student/employee ID"),
+            "description": _("Show or require the student/employee ID field on the public request form."),
+            "default": "optional",
+            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
+        },
+        "PUBLIC_FIELD_PROJECT": {
+            "name": _("Public form: project or course"),
+            "description": _("Show or require the project/course field on the public request form."),
+            "default": "optional",
+            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
+        },
+        "PUBLIC_FIELD_PURPOSE": {
+            "name": _("Public form: purpose"),
+            "description": _("Show or require the purpose field on the public request form."),
+            "default": "required",
+            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
+        },
+        "PUBLIC_FIELD_NOTES": {
+            "name": _("Public form: additional notes"),
+            "description": _("Show or require the additional notes field on the public request form."),
+            "default": "optional",
+            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
+        },
+        "PUBLIC_FIELD_PICKUP_DATE": {
+            "name": _("Public form: pickup date"),
+            "description": _("Show or require the pickup date field on the public request form."),
+            "default": "required",
+            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
+        },
+        "PUBLIC_FIELD_RETURN_DATE": {
+            "name": _("Public form: return date"),
+            "description": _("Show or require the return date field on the public request form."),
+            "default": "required",
+            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
+        },
     }
 
     def setup_urls(self):
@@ -299,11 +356,11 @@ class InvenTreeLoanPlugin(
         if not request.user.is_authenticated:
             return []
 
-        from .config import get_native_management_url
+        from .config import get_native_management_url, get_public_request_url
         from .permissions import can_view_all
 
         try:
-            request_url = reverse("plugin:loan:request_new")
+            request_url = get_public_request_url()
             requests_url = reverse("plugin:loan:requests")
             loans_url = reverse("plugin:loan:loans")
         except Exception:  # pragma: no cover
@@ -377,7 +434,7 @@ class InvenTreeLoanPlugin(
 
     def get_admin_context(self) -> dict:
         """Context passed to the native plugin administration UI."""
-        from .config import get_native_management_url
+        from .config import get_native_management_url, get_public_request_url
         from .services.setup import (
             get_loan_location,
             get_on_loan_status,
@@ -392,7 +449,7 @@ class InvenTreeLoanPlugin(
             "loan_location_id": getattr(location, "pk", None),
             "on_loan_status": getattr(status, "label", ""),
             "on_loan_status_key": getattr(status, "key", None),
-            "request_url": reverse("plugin:loan:request_new"),
+            "request_url": get_public_request_url(),
             "requests_url": reverse("plugin:loan:requests"),
             "loans_url": reverse("plugin:loan:loans"),
             "management_url": get_native_management_url(),

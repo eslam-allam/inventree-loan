@@ -993,9 +993,20 @@ function RequestDetailPage({ context, requestId }) {
                                   'Print box label'
                               ),
                               h(
+                                  M.Button,
+                                  {
+                                      size: 'xs',
+                                      variant: 'light',
+                                      component: 'a',
+                                      href: detail.pickup.return_sheet_url,
+                                      target: '_blank'
+                                  },
+                                  'Print return sheet'
+                              ),
+                              h(
                                   M.Text,
                                   { size: 'xs', c: 'dimmed', maw: 180 },
-                                  'Attach this label to the box or bag.'
+                                  'Attach the label to the box and keep the return sheet inside.'
                               )
                           )
                       )
@@ -1267,7 +1278,7 @@ function RequestDetailPage({ context, requestId }) {
     );
 }
 
-function RequestsPanel({ context, onDataChanged }) {
+function RequestsPanel({ context, onDataChanged, refreshToken = 0 }) {
     const api = context.api;
     const [reloadKey, setReloadKey] = useState(0);
     const [search, setSearch] = useState('');
@@ -1282,6 +1293,9 @@ function RequestsPanel({ context, onDataChanged }) {
     const [actionError, setActionError] = useState('');
     const [signature, setSignature] = useState('');
     const debouncedSearch = useDebounced(search);
+    useEffect(() => {
+        if (refreshToken) setReloadKey((value) => value + 1);
+    }, [refreshToken]);
     const query = buildQuery({
         search: debouncedSearch.trim(),
         status,
@@ -1716,7 +1730,7 @@ function RequestsPanel({ context, onDataChanged }) {
     );
 }
 
-function LoansPanel({ context, onDataChanged }) {
+function LoansPanel({ context, onDataChanged, refreshToken = 0 }) {
     const api = context.api;
     const [reloadKey, setReloadKey] = useState(0);
     const [search, setSearch] = useState('');
@@ -1726,6 +1740,9 @@ function LoansPanel({ context, onDataChanged }) {
     const [limit, setLimit] = useState(25);
     const [returnLoan, setReturnLoan] = useState(null);
     const debouncedSearch = useDebounced(search);
+    useEffect(() => {
+        if (refreshToken) setReloadKey((value) => value + 1);
+    }, [refreshToken]);
     const query = buildQuery({
         search: debouncedSearch.trim(),
         status,
@@ -2447,7 +2464,7 @@ function ReturnModal({ context, loan, onClose, onSaved }) {
     );
 }
 
-function HandoutPanel({ context, onDataChanged }) {
+function HandoutPanel({ context, onDataChanged, refreshToken = 0 }) {
     const api = context.api;
     const [search, setSearch] = useState('');
     const [allocation, setAllocation] = useState('');
@@ -2462,6 +2479,9 @@ function HandoutPanel({ context, onDataChanged }) {
     const [scanValue, setScanValue] = useState('');
     const [scanBusy, setScanBusy] = useState(false);
     const debouncedSearch = useDebounced(search);
+    useEffect(() => {
+        if (refreshToken) setReloadKey((value) => value + 1);
+    }, [refreshToken]);
     const query = buildQuery({
         status: 'approved,ready_for_pickup',
         search: debouncedSearch.trim(),
@@ -3371,7 +3391,19 @@ function AdminConsole({ context }) {
     const [access, setAccess] = useState(null);
     const [accessError, setAccessError] = useState('');
     const [statsKey, setStatsKey] = useState(0);
+    const [refreshToken, setRefreshToken] = useState(0);
+    const [scanOpen, setScanOpen] = useState(false);
+    const [scanValue, setScanValue] = useState('');
+    const [scanBusy, setScanBusy] = useState(false);
+    const [scanError, setScanError] = useState('');
+    const [scanMatch, setScanMatch] = useState(null);
+    const [scanHandoutId, setScanHandoutId] = useState(null);
+    const [scanReturnLoan, setScanReturnLoan] = useState(null);
     const refreshStats = () => setStatsKey((value) => value + 1);
+    const refreshConsole = () => {
+        refreshStats();
+        setRefreshToken((value) => value + 1);
+    };
 
     // The same native page serves loan staff and ordinary requesters.  Read
     // the role flags from the API so requesters only see their own tabs.
@@ -3392,7 +3424,130 @@ function AdminConsole({ context }) {
     const isManager = Boolean(access?.is_manager);
     const canHandout = Boolean(access?.can_handout);
     const canManage = Boolean(access?.can_manage_staff);
-    const requestUrl = context.context?.request_url || '/plugin/loan/request/';
+    const requestUrl =
+        access?.public_request_url ||
+        context.context?.request_url ||
+        '/plugin/loan/request/';
+
+    const openScan = () => {
+        setScanValue('');
+        setScanError('');
+        setScanMatch(null);
+        setScanOpen(true);
+    };
+
+    const runScan = (value) => {
+        const barcode = (value || scanValue || '').trim();
+        if (!barcode) return;
+        setScanBusy(true);
+        setScanError('');
+        setScanMatch(null);
+        api.post('/plugin/loan/api/scan/', { barcode })
+            .then((response) => {
+                const found = response.data || {};
+                if (!found.success) {
+                    setScanError(found.error || 'No matching record found.');
+                    return;
+                }
+                setScanMatch(found);
+            })
+            .catch((err) => setScanError(errorText(err)))
+            .finally(() => setScanBusy(false));
+    };
+
+    const scanAction = (() => {
+        if (!scanMatch) return null;
+        const data = scanMatch.data || {};
+        if (scanMatch.type === 'pickup' || scanMatch.type === 'request') {
+            const status = data.request_status || data.status;
+            const requestPk = data.request_pk || data.pk;
+            if (canHandout && ['approved', 'ready_for_pickup'].includes(status)) {
+                return { type: 'handout', requestPk, label: 'Hand out' };
+            }
+            if (canHandout && status === 'fulfilled' && data.loan_is_open) {
+                return { type: 'return', loanPk: data.loan_pk, label: 'Return' };
+            }
+            return { type: 'request', requestPk, label: 'Open request' };
+        }
+        if (scanMatch.type === 'loan') {
+            if (canHandout && data.is_open) {
+                return { type: 'return', loanPk: data.pk, label: 'Return loan' };
+            }
+            if (data.request_pk) {
+                return { type: 'request', requestPk: data.request_pk, label: 'Open request' };
+            }
+            return null;
+        }
+        if (scanMatch.type === 'stockitem') {
+            if (canHandout && data.on_loan && data.loan_is_open) {
+                return { type: 'return', loanPk: data.loan_id, label: 'Return loan' };
+            }
+            return { type: 'part', partPk: data.part, label: 'Open part' };
+        }
+        if (scanMatch.type === 'part') {
+            return { type: 'part', partPk: data.pk, label: 'Open part' };
+        }
+        return null;
+    })();
+
+    const runScanAction = () => {
+        if (!scanAction) return;
+        if (scanAction.type === 'handout') {
+            setScanHandoutId(scanAction.requestPk);
+            setScanOpen(false);
+        } else if (scanAction.type === 'return') {
+            setScanReturnLoan({
+                pk: scanAction.loanPk,
+                reference: scanMatch?.data?.loan_reference || ''
+            });
+            setScanOpen(false);
+        } else if (scanAction.type === 'request') {
+            setScanOpen(false);
+            context.navigate(`/plugin/loan/requests/${scanAction.requestPk}`);
+        } else if (scanAction.type === 'part') {
+            window.open(`/web/part/${scanAction.partPk}/`, '_blank');
+        }
+    };
+
+    const scanTitle = (() => {
+        if (!scanMatch) return '';
+        const data = scanMatch.data || {};
+        if (scanMatch.type === 'pickup') {
+            return `${data.reference || 'Pickup box'}${data.name ? ` · ${data.name}` : ''}`;
+        }
+        if (scanMatch.type === 'request') return data.reference || 'Request';
+        if (scanMatch.type === 'loan') return data.reference || 'Loan';
+        if (scanMatch.type === 'stockitem') {
+            return `${data.part_name || 'Stock item'}${
+                data.serial ? ` · ${data.serial}` : ''
+            }`;
+        }
+        if (scanMatch.type === 'part') return data.name || 'Part';
+        return scanMatch.type;
+    })();
+
+    const scanSubtitle = (() => {
+        if (!scanMatch) return '';
+        const data = scanMatch.data || {};
+        if (scanMatch.type === 'pickup') {
+            return `Request ${data.request_reference || '—'} · ${data.request_status || ''}`;
+        }
+        if (scanMatch.type === 'request') {
+            return `${data.status_display || data.status || ''} · ${
+                data.requester || ''
+            }`;
+        }
+        if (scanMatch.type === 'loan') {
+            return `${data.status_text || ''} · ${data.borrower || ''}`;
+        }
+        if (scanMatch.type === 'stockitem') {
+            return `${data.on_loan ? 'On loan' : 'In stock'}${
+                data.location ? ` · ${data.location}` : ''
+            }`;
+        }
+        if (scanMatch.type === 'part') return data.ipn || data.description || '';
+        return '';
+    })();
 
     const tabs = [
         { value: 'requests', label: 'Requests' },
@@ -3427,6 +3582,13 @@ function AdminConsole({ context }) {
                 M.Group,
                 { gap: 'sm' },
                 h(M.Badge, { variant: 'light' }, 'InvenTree'),
+                isManager || canHandout
+                    ? h(
+                          M.Button,
+                          { size: 'sm', variant: 'default', onClick: openScan },
+                          'Scan'
+                      )
+                    : null,
                 h(
                     M.Anchor,
                     { href: requestUrl, target: '_blank' },
@@ -3479,18 +3641,30 @@ function AdminConsole({ context }) {
             h(
                 M.Tabs.Panel,
                 { value: 'requests', pt: 'md' },
-                h(RequestsPanel, { context, onDataChanged: refreshStats })
+                h(RequestsPanel, {
+                    context,
+                    onDataChanged: refreshStats,
+                    refreshToken
+                })
             ),
             h(
                 M.Tabs.Panel,
                 { value: 'loans', pt: 'md' },
-                h(LoansPanel, { context, onDataChanged: refreshStats })
+                h(LoansPanel, {
+                    context,
+                    onDataChanged: refreshStats,
+                    refreshToken
+                })
             ),
             canHandout
                 ? h(
                       M.Tabs.Panel,
                       { value: 'handout', pt: 'md' },
-                      h(HandoutPanel, { context, onDataChanged: refreshStats })
+                      h(HandoutPanel, {
+                          context,
+                          onDataChanged: refreshStats,
+                          refreshToken
+                      })
                   )
                 : null,
             canManage
@@ -3502,7 +3676,100 @@ function AdminConsole({ context }) {
             isManager
                 ? h(M.Tabs.Panel, { value: 'history', pt: 'md' }, h(HistoryPanel, { context }))
                 : null
-        )
+        ),
+        h(
+            M.Modal,
+            {
+                opened: scanOpen,
+                onClose: () => setScanOpen(false),
+                title: 'Scan',
+                size: 'lg',
+                centered: true
+            },
+            h(
+                M.Stack,
+                { gap: 'sm' },
+                h(
+                    M.Text,
+                    { size: 'sm', c: 'dimmed' },
+                    'Scan a pickup box, request reference or QR, loan QR, stock item, or part.'
+                ),
+                h(
+                    M.Group,
+                    { align: 'flex-end', wrap: 'wrap' },
+                    h(M.TextInput, {
+                        label: 'Barcode / QR',
+                        placeholder: 'Scan or type a code, then press Enter',
+                        value: scanValue,
+                        onChange: (event) => setScanValue(event.currentTarget.value),
+                        onKeyDown: (event) => {
+                            if (event.key === 'Enter') {
+                                event.preventDefault();
+                                runScan(scanValue);
+                            }
+                        },
+                        'data-autofocus': true,
+                        style: { flex: '1 1 320px' }
+                    }),
+                    h(
+                        M.Button,
+                        { loading: scanBusy, onClick: () => runScan(scanValue) },
+                        'Scan'
+                    )
+                ),
+                h(ErrorAlert, { error: scanError }),
+                scanMatch
+                    ? h(
+                          M.Paper,
+                          { withBorder: true, p: 'md' },
+                          h(
+                              M.Stack,
+                              { gap: 4 },
+                              h(
+                                  M.Text,
+                                  { size: 'xs', c: 'dimmed', tt: 'uppercase', fw: 700 },
+                                  scanMatch.type
+                              ),
+                              h(M.Text, { fw: 700 }, scanTitle),
+                              h(M.Text, { size: 'sm', c: 'dimmed' }, scanSubtitle),
+                              scanAction
+                                  ? h(
+                                        M.Button,
+                                        {
+                                            mt: 'xs',
+                                            onClick: runScanAction
+                                        },
+                                        scanAction.label
+                                    )
+                                  : null
+                          )
+                      )
+                    : null
+            )
+        ),
+        h(RequestDetailModal, {
+            context,
+            requestId: scanHandoutId,
+            handoutMode: true,
+            onClose: () => setScanHandoutId(null),
+            onHandout: (requestId, signature) =>
+                api.post('/plugin/loan/api/checkout/', {
+                    request_id: requestId,
+                    signature
+                }).then(() => {
+                    setScanHandoutId(null);
+                    refreshConsole();
+                })
+        }),
+        h(ReturnModal, {
+            context,
+            loan: scanReturnLoan,
+            onClose: () => setScanReturnLoan(null),
+            onSaved: () => {
+                setScanReturnLoan(null);
+                refreshConsole();
+            }
+        })
     );
 }
 
