@@ -149,6 +149,45 @@ class LoanAllocationTests(InvenTreeTestCase):
             )
 
     @patch("inventree_loan.services.requests._loan_location")
+    def test_template_parts_include_variant_stock(self, request_location):
+        request_location.return_value = self.loan_location
+        template = Part.objects.create(
+            name="Template Loan Part",
+            category=self.category,
+            is_template=True,
+        )
+        variant = Part.objects.create(
+            name="Variant Loan Part",
+            category=self.category,
+            variant_of=template,
+        )
+        StockItem.objects.create(
+            part=variant,
+            location=self.location,
+            quantity=Decimal("4"),
+            status=StockStatus.OK.value,
+        )
+        self.assertEqual(
+            part_availability(template)["available"], Decimal("4")
+        )
+        cleaned = _validate_lines([{"part_id": template.pk, "quantity": 2}])
+        self.assertEqual(cleaned[0]["part"].pk, template.pk)
+
+        request = LoanRequest.objects.create(
+            requester=self.user,
+            status=LoanRequestStatus.APPROVED,
+            purpose="Template allocation",
+            responsibility_ack=True,
+        )
+        line = LoanRequestLine.objects.create(
+            request=request, part=template, quantity=Decimal("2")
+        )
+        auto_allocate_request(request, self.desk_user)
+        allocation = line.allocations.get()
+        self.assertEqual(allocation.stock_item.part_id, variant.pk)
+        self.assertEqual(allocation.quantity, Decimal("2"))
+
+    @patch("inventree_loan.services.requests._loan_location")
     def test_clear_allocations_releases_stock(self, request_location):
         request_location.return_value = self.loan_location
         auto_allocate_request(self.request, self.desk_user)

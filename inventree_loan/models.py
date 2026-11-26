@@ -315,7 +315,9 @@ class LoanRequestLine(models.Model):
         if self.quantity is None or self.quantity <= 0:
             raise ValidationError({"quantity": _("Quantity must be greater than zero")})
         if self.stock_item_id and self.part_id:
-            if self.stock_item.part_id != self.part_id:
+            if not self.stock_item.part.get_ancestors(include_self=True).filter(
+                pk=self.part_id
+            ).exists():
                 raise ValidationError(
                     {"stock_item": _("The stock item does not belong to the selected part")}
                 )
@@ -383,7 +385,9 @@ class LoanRequestAllocation(LoanBaseModel):
         if self.quantity is None or self.quantity <= 0:
             raise ValidationError({"quantity": _("Quantity must be greater than zero")})
         if self.stock_item_id and self.line_id:
-            if self.stock_item.part_id != self.line.part_id:
+            if not self.stock_item.part.get_ancestors(include_self=True).filter(
+                pk=self.line.part_id
+            ).exists():
                 raise ValidationError(
                     {"stock_item": _("The stock item does not belong to this request line")}
                 )

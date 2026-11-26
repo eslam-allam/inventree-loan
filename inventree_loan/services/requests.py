@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -40,6 +40,26 @@ def _loan_location():
     return get_loan_location()
 
 
+def part_family_ids(part) -> list[int]:
+    """Return the part and its variant/descendant part IDs.
+
+    InvenTree template parts usually hold no stock themselves; their stock is
+    held by variant parts.  Availability and allocation must therefore consider
+    the whole variant family.
+    """
+    if part is None:
+        return []
+    if not getattr(part, "is_template", False):
+        return [part.pk]
+    try:
+        ids = list(
+            part.get_descendants(include_self=True).values_list("pk", flat=True)
+        )
+    except Exception:  # pragma: no cover - defensive for unusual part loaders
+        ids = [part.pk]
+    return ids or [part.pk]
+
+
 def _active_loan_stock_ids():
     from ..models import LoanItem
 
@@ -65,13 +85,20 @@ def loan_allocated_quantity(stock_item, exclude_request=None) -> Decimal:
     return queryset.aggregate(total=Sum("quantity"))["total"] or Decimal(0)
 
 
-def available_stock_queryset(part):
-    """Return stock items for a part that may currently be loaned."""
+def available_stock_queryset(part=None, part_ids=None):
+    """Return stock items for a part family that may currently be loaned."""
     from stock.models import StockItem
     from stock.status_codes import StockStatusGroups
 
+    if part is not None:
+        part_ids = part_family_ids(part)
+    if not part_ids:
+        return StockItem.objects.none()
+
     queryset = StockItem.objects.filter(
-        part=part,
+        part_id__in=part_ids,
+        part__active=True,
+        part__virtual=False,
         quantity__gt=0,
         location__isnull=False,
         customer__isnull=True,
@@ -106,28 +133,130 @@ def stock_item_available_quantity(item, exclude_request=None) -> Decimal:
     return max(item.unallocated_quantity() - reserved, Decimal(0))
 
 
-def part_availability(part, exclude_request=None) -> dict:
-    """Return available and on-loan quantities for a part."""
+def stock_item_available_bulk(items, exclude_request=None) -> dict[int, Decimal]:
+    """Return available quantities for many stock items in a fixed query count."""
+    from stock.models import StockItem
+
+    from ..models import LoanItem, LoanRequestAllocation, LoanRequestStatus
+
+    items = list(items)
+    if not items:
+        return {}
+
+    # `bulk_allocation_count` is available on InvenTree 1.7+.  Fall back to
+    # the per-item calculation on 1.6 so the plugin keeps its supported range.
+    bulk_allocations = (
+        StockItem.bulk_allocation_count(items)
+        if hasattr(StockItem, "bulk_allocation_count")
+        else None
+    )
+    loan_reserved = {
+        row["stock_item"]: row["total"]
+        for row in LoanRequestAllocation.objects.filter(
+            stock_item__in=items,
+            line__request__status__in=[
+                LoanRequestStatus.PENDING,
+                LoanRequestStatus.APPROVED,
+                LoanRequestStatus.PARTIALLY_FULFILLED,
+            ],
+        )
+        .exclude(line__request=exclude_request)
+        .values("stock_item")
+        .annotate(total=Sum("quantity"))
+    }
+    open_loan_items = set(
+        LoanItem.objects.filter(
+            stock_item__in=items, returned_at__isnull=True, lost=False
+        ).values_list("stock_item_id", flat=True)
+    )
+
+    result = {}
+    for item in items:
+        if item.pk in open_loan_items:
+            result[item.pk] = Decimal(0)
+            continue
+        allocated = (
+            item.unallocated_quantity()
+            if bulk_allocations is None
+            else item.quantity - bulk_allocations.get(item.pk, Decimal(0))
+        )
+        result[item.pk] = max(
+            allocated - loan_reserved.get(item.pk, Decimal(0)), Decimal(0)
+        )
+    return result
+
+
+def part_availability_bulk(parts, exclude_request=None) -> dict[int, dict]:
+    """Return availability for many parts using a fixed number of queries.
+
+    This is the hot path for the public catalogue.  Computing availability one
+    part at a time causes an N+1 explosion across stock items, open loans and
+    loan allocations.
+    """
     from ..models import LoanItem
 
-    available = Decimal(0)
-    for item in available_stock_queryset(part).select_related("location"):
-        available += stock_item_available_quantity(item, exclude_request=exclude_request)
+    parts = list(parts)
+    if not parts:
+        return {}
+
+    families = {part.pk: part_family_ids(part) for part in parts}
+    all_part_ids = set()
+    for ids in families.values():
+        all_part_ids.update(ids)
+
+    items = list(
+        available_stock_queryset(part_ids=list(all_part_ids)).select_related("part")
+    )
+    item_available = stock_item_available_bulk(
+        items, exclude_request=exclude_request
+    )
+    items_by_part: dict[int, list[int]] = {}
+    for item in items:
+        if item_available.get(item.pk, Decimal(0)) > 0:
+            items_by_part.setdefault(item.part_id, []).append(item.pk)
 
     remaining = ExpressionWrapper(
         F("quantity") - F("returned_quantity"),
         output_field=DecimalField(max_digits=15, decimal_places=5),
     )
-    on_loan = LoanItem.objects.filter(
-        part=part, returned_at__isnull=True, lost=False
-    ).aggregate(total=Sum(remaining))
-    on_loan_quantity = on_loan.get("total") or Decimal(0)
-
-    return {
-        "available": available,
-        "on_loan": on_loan_quantity,
-        "total": available + on_loan_quantity,
+    on_loan_by_part = {
+        row["part_id"]: row["total"]
+        for row in LoanItem.objects.filter(
+            part_id__in=all_part_ids, returned_at__isnull=True, lost=False
+        )
+        .values("part_id")
+        .annotate(total=Sum(remaining))
     }
+
+    result = {}
+    for part in parts:
+        ids = set(families[part.pk])
+        available = sum(
+            (
+                item_available[item_pk]
+                for part_id in ids
+                for item_pk in items_by_part.get(part_id, [])
+            ),
+            Decimal(0),
+        )
+        on_loan = sum(
+            (on_loan_by_part.get(part_id, Decimal(0)) for part_id in ids),
+            Decimal(0),
+        )
+        result[part.pk] = {
+            "available": available,
+            "on_loan": on_loan,
+            "total": available + on_loan,
+        }
+    return result
+
+
+def part_availability(part, exclude_request=None) -> dict:
+    """Return available and on-loan quantities for a part family."""
+    return part_availability_bulk([part], exclude_request=exclude_request).get(
+        part.pk,
+        {"available": Decimal(0), "on_loan": Decimal(0), "total": Decimal(0)},
+    )
 
 
 def _part_image(part):
@@ -169,6 +298,15 @@ def catalog_categories() -> list[dict]:
             | Q(pathstring__startswith=f"{base.pathstring}/")
         )
 
+    part_counts = {
+        row["category_id"]: row["total"]
+        for row in Part.objects.filter(
+            active=True, virtual=False, category__isnull=False
+        )
+        .values("category_id")
+        .annotate(total=Count("pk"))
+    }
+
     categories = []
     for category in queryset.order_by("tree_id", "lft"):
         categories.append({
@@ -177,9 +315,7 @@ def catalog_categories() -> list[dict]:
             "parent": category.parent_id,
             "path": category.pathstring,
             "depth": category.pathstring.count("/"),
-            "part_count": Part.objects.filter(
-                active=True, virtual=False, category=category
-            ).count(),
+            "part_count": part_counts.get(category.pk, 0),
         })
     return categories
 
@@ -217,9 +353,18 @@ def catalog_parts(
             )
 
     total = queryset.count()
+    page_parts = list(queryset.order_by("name")[offset : offset + limit])
+    availability_map = part_availability_bulk(page_parts)
     results = []
-    for part in queryset.order_by("name")[offset : offset + limit]:
-        availability = part_availability(part)
+    for part in page_parts:
+        availability = availability_map.get(
+            part.pk,
+            {"available": Decimal(0), "on_loan": Decimal(0)},
+        )
+        is_template = bool(getattr(part, "is_template", False))
+        variant_count = (
+            max(part.get_descendant_count(), 0) if is_template else 0
+        )
         results.append({
             "pk": part.pk,
             "name": part.name,
@@ -229,6 +374,8 @@ def catalog_parts(
             "category_id": part.category_id,
             "units": getattr(part, "units", "") or "",
             "trackable": bool(getattr(part, "trackable", False)),
+            "is_template": is_template,
+            "variant_count": variant_count,
             "available": float(availability["available"]),
             "on_loan": float(availability["on_loan"]),
             "image": _part_image(part),
@@ -260,16 +407,23 @@ def part_detail(part_id: int, exclude_request=None) -> dict | None:
 
     availability = part_availability(part, exclude_request=exclude_request)
     stock_items = []
-    for item in available_stock_queryset(part).select_related("location").order_by(
-        "serial", "batch", "pk"
-    )[:100]:
-        available = stock_item_available_quantity(
-            item, exclude_request=exclude_request
-        )
+    page_items = list(
+        available_stock_queryset(part)
+        .select_related("location", "part")
+        .order_by("serial", "batch", "pk")[:100]
+    )
+    item_available = stock_item_available_bulk(
+        page_items, exclude_request=exclude_request
+    )
+    for item in page_items:
+        available = item_available.get(item.pk, Decimal(0))
         if available <= 0:
             continue
         stock_items.append({
             "pk": item.pk,
+            "part": item.part_id,
+            "part_name": item.part.name,
+            "ipn": item.part.IPN or "",
             "label": item.serial or item.batch or f"Item #{item.pk}",
             "serial": item.serial or "",
             "batch": item.batch or "",
@@ -277,7 +431,37 @@ def part_detail(part_id: int, exclude_request=None) -> dict | None:
             "available": float(available),
             "location": item.location.pathstring if item.location else "",
             "serialized": bool(item.serialized),
+            "trackable": bool(getattr(item.part, "trackable", False)),
         })
+
+    is_template = bool(getattr(part, "is_template", False))
+    variants = []
+    variant_count = 0
+    if is_template:
+        family = part_family_ids(part)
+        variant_parts = list(
+            Part.objects.filter(pk__in=family, active=True, virtual=False)
+            .exclude(pk=part.pk)
+            .order_by("name")
+        )
+        variant_count = len(variant_parts)
+        variant_availability = part_availability_bulk(
+            variant_parts, exclude_request=exclude_request
+        )
+        variants = [
+            {
+                "pk": variant.pk,
+                "name": variant.name,
+                "ipn": variant.IPN or "",
+                "trackable": bool(getattr(variant, "trackable", False)),
+                "available": float(
+                    variant_availability.get(
+                        variant.pk, {"available": Decimal(0)}
+                    )["available"]
+                ),
+            }
+            for variant in variant_parts
+        ]
 
     return {
         "pk": part.pk,
@@ -288,6 +472,9 @@ def part_detail(part_id: int, exclude_request=None) -> dict | None:
         "category_id": part.category_id,
         "units": getattr(part, "units", "") or "",
         "trackable": bool(getattr(part, "trackable", False)),
+        "is_template": is_template,
+        "variant_count": variant_count,
+        "variants": variants,
         "available": float(availability["available"]),
         "on_loan": float(availability["on_loan"]),
         "image": _part_image(part),
@@ -368,7 +555,7 @@ def _validate_lines(lines: list[dict]) -> list[dict]:
                 ) from None
 
         if stock_item is not None:
-            if stock_item.part_id != part.pk:
+            if stock_item.part_id not in part_family_ids(part):
                 raise ValidationError(
                     {"stock_item": _("The stock item does not belong to the selected part")}
                 )

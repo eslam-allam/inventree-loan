@@ -1616,3 +1616,9 @@ body:has(.basket-drawer[open]) {
     background: inherit;
     box-shadow: -1px 0 0 var(--it-border);
 }
+
+.part-card-meta {
+    color: var(--it-dim);
+    font-size: 12px;
+    margin-top: 2px;
+}

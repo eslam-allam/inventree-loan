@@ -145,6 +145,22 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         )
         self.assertEqual(wrong.status_code, 404)
 
+    def test_public_request_rejects_fractional_quantity(self):
+        from inventree_loan.api.serializers import PublicRequestCreateSerializer
+
+        serializer = PublicRequestCreateSerializer(
+            data={
+                "requester_name": "Anon",
+                "requester_email": "anon@example.com",
+                "signature": TEST_SIGNATURE,
+                "purpose": "Fraction test",
+                "responsibility_ack": True,
+                "lines": [{"part_id": self.part.pk, "quantity": 1.5}],
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("lines", serializer.errors)
+
     def test_catalog_is_requester_safe(self):
         response = self.client.get("/plugin/loan/api/catalog/?search=API")
         self.assertEqual(response.status_code, 200)

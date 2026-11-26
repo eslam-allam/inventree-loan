@@ -17,6 +17,9 @@
         return Number.isFinite(parsed) ? parsed : 0;
     };
 
+    // The public request flow borrows whole units only.
+    const whole = (value) => Math.floor(num(value));
+
     function formatError(error) {
         if (!error) return 'Something went wrong.';
         if (typeof error === 'string') return error;
@@ -441,7 +444,7 @@
                         ${line.ipn ? `<div class="loan-muted">${esc(line.ipn)}</div>` : ''}
                         ${line.stock_item_id ? `<div class="loan-muted">Asset: ${esc(line.label)}</div>` : ''}
                     </td>
-                    <td><input class="loan-input loan-qty-input" type="number" min="${line.stock_item_id ? 1 : 0.00001}" max="${line.stock_item_id ? 1 : line.available || ''}" step="any" value="${line.quantity}" data-qty-index="${index}" aria-label="Quantity for ${esc(line.name)}"></td>
+                    <td><input class="loan-input loan-qty-input" type="number" min="1" max="${line.stock_item_id ? 1 : line.available || ''}" step="1" value="${line.quantity}" data-qty-index="${index}" aria-label="Quantity for ${esc(line.name)}"></td>
                     <td><button class="loan-icon-btn" type="button" data-remove-index="${index}" aria-label="Remove ${esc(line.name)}"><i class="fas fa-trash" aria-hidden="true"></i></button></td>
                 </tr>`).join('');
             cartBody.querySelectorAll('[data-qty-index]').forEach((input) => {
@@ -449,7 +452,7 @@
                     const index = Number(input.dataset.qtyIndex);
                     const line = state.lines[index];
                     const maximum = line.stock_item_id ? 1 : (num(line.available) || num(input.value));
-                    const value = Math.min(Math.max(num(input.value), 0.00001), maximum);
+                    const value = Math.min(Math.max(Math.round(num(input.value)), 1), Math.max(Math.round(maximum), 1));
                     line.quantity = value;
                     input.value = value;
                     renderCart();
@@ -464,8 +467,8 @@
         };
 
         const addPart = (part, quantity = 1) => {
-            const available = num(part.available);
-            if (available <= 0) {
+            const available = whole(part.available);
+            if (available < 1) {
                 if (scanResult) {
                     scanResult.className = 'catalog-scan-result is-error';
                     scanResult.textContent = `${part.name} is not available to borrow.`;
@@ -474,13 +477,16 @@
             }
             const existing = state.lines.find((line) => !line.stock_item_id && line.part_id === part.pk);
             if (existing) {
-                existing.quantity = Math.min(num(existing.quantity) + num(quantity), available);
+                existing.quantity = Math.min(
+                    Math.round(num(existing.quantity)) + Math.max(Math.round(num(quantity)), 1),
+                    Math.max(available, 1)
+                );
             } else {
                 state.lines.push({
                     part_id: part.pk,
                     name: part.name,
                     ipn: part.ipn || '',
-                    quantity: Math.min(num(quantity) || 1, available),
+                    quantity: Math.min(Math.max(Math.round(num(quantity)), 1), Math.max(available, 1)),
                     available,
                     trackable: Boolean(part.trackable),
                     stock_item_id: null,
@@ -491,6 +497,7 @@
         };
 
         const addStockItem = (item, part) => {
+            if (whole(item.available ?? item.quantity) < 1) return;
             if (state.lines.some((line) => line.stock_item_id === item.pk)) {
                 if (scanResult) {
                     scanResult.className = 'catalog-scan-result is-error';
@@ -503,7 +510,7 @@
                 name: part.name || item.part_name,
                 ipn: part.ipn || item.ipn || '',
                 quantity: 1,
-                available: num(item.available ?? item.quantity),
+                available: whole(item.available ?? item.quantity),
                 trackable: true,
                 stock_item_id: item.pk,
                 label: item.serial || item.label || `#${item.pk}`
@@ -517,22 +524,32 @@
 
         const renderPartDialog = (part) => {
             const stockItems = part.stock_items || [];
-            const availabilityClass = part.available <= 0 ? 'is-none' : part.available < 3 ? 'is-low' : '';
+            const totalAvailable = whole(part.available);
+            const availabilityClass = totalAvailable < 1 ? 'is-none' : totalAvailable < 3 ? 'is-low' : '';
             const image = `<i class="fas fa-box" aria-hidden="true"></i>${part.image ? `<img src="${esc(part.image)}" alt="" loading="lazy" onerror="this.remove()">` : ''}`;
             const stockRows = stockItems.map((item) => `
                 <div class="stock-row">
                     <div class="stock-row-main">
                         <div class="stock-row-title">${esc(item.label || `Item #${item.pk}`)}</div>
-                        <div class="stock-row-meta">${esc(item.location || 'No location')} · ${num(item.available)} available</div>
+                        <div class="stock-row-meta">${esc(item.part_name || '')}${item.part_name && item.location ? ' · ' : ''}${esc(item.location || 'No location')} · ${whole(item.available)} available</div>
                     </div>
-                    <button class="it-btn it-btn-small it-btn-primary" type="button" data-dialog-add-stock="${item.pk}" aria-label="Add ${esc(item.label || `item ${item.pk}`)}" ${num(item.available) <= 0 ? 'disabled' : ''}>Add</button>
+                    <button class="it-btn it-btn-small it-btn-primary" type="button" data-dialog-add-stock="${item.pk}" aria-label="Add ${esc(item.label || `item ${item.pk}`)}" ${whole(item.available) < 1 ? 'disabled' : ''}>Add</button>
+                </div>`).join('');
+            const variants = part.variants || [];
+            const variantRows = variants.map((variant) => `
+                <div class="stock-row">
+                    <div class="stock-row-main">
+                        <div class="stock-row-title">${esc(variant.name)}${variant.ipn ? ` · ${esc(variant.ipn)}` : ''}</div>
+                        <div class="stock-row-meta">${variant.trackable ? 'Tracked asset · ' : ''}${whole(variant.available)} available</div>
+                    </div>
+                    <button class="it-btn it-btn-small it-btn-primary" type="button" data-dialog-add-variant="${variant.pk}" aria-label="Add ${esc(variant.name)}" ${whole(variant.available) < 1 ? 'disabled' : ''}>Add</button>
                 </div>`).join('');
             const addControl = stockItems.length
                 ? (part.trackable
                     ? `<p class="stock-row-meta">Choose a specific unit from the list below.</p>`
                     : `<div class="quantity-add">
                         <label class="loan-label" for="dialog-quantity">Quantity</label>
-                        <input id="dialog-quantity" type="number" min="0.00001" step="any" value="1" max="${part.available}" data-dialog-quantity>
+                        <input id="dialog-quantity" type="number" min="1" step="1" value="1" max="${totalAvailable}" data-dialog-quantity>
                         <button class="it-btn it-btn-primary" type="button" data-dialog-add-part aria-label="Add ${esc(part.name)} to request">Add</button>
                     </div>`)
                 : `<p class="part-dialog-desc">No units are available to borrow right now.</p>`;
@@ -548,17 +565,18 @@
                 <div class="part-dialog-layout">
                     <div class="part-dialog-image">${image}</div>
                     <div>
-                        <span class="availability ${availabilityClass}">${part.available > 0 ? `${num(part.available)} available` : 'Unavailable'}</span>
+                        <span class="availability ${availabilityClass}">${totalAvailable > 0 ? `${totalAvailable} available` : 'Unavailable'}</span>
                         ${part.trackable ? '<span class="loan-badge loan-badge-info" style="margin-left:6px">Tracked asset</span>' : ''}
                         <p class="part-dialog-desc">${esc(part.description || 'No description available.')}</p>
                         <div class="part-dialog-section">${addControl}</div>
+                        ${variants.length ? `<div class="part-dialog-section"><h3>Variants</h3><div class="stock-list">${variantRows}</div></div>` : ''}
                         ${stockItems.length ? `<div class="part-dialog-section"><h3>${part.trackable ? 'Available units' : 'Stock'}</h3><div class="stock-list">${stockRows}</div></div>` : ''}
                     </div>
                 </div>`;
 
             partDialogContent.querySelector('[data-close-part]')?.addEventListener('click', closePartDialog);
             partDialogContent.querySelector('[data-dialog-add-part]')?.addEventListener('click', () => {
-                const quantity = num(partDialogContent.querySelector('[data-dialog-quantity]')?.value || 1);
+                const quantity = Math.max(1, Math.round(num(partDialogContent.querySelector('[data-dialog-quantity]')?.value || 1)));
                 addPart(part, quantity);
                 closePartDialog();
             });
@@ -566,7 +584,24 @@
                 button.addEventListener('click', () => {
                     const item = stockItems.find((entry) => String(entry.pk) === button.dataset.dialogAddStock);
                     if (item) {
-                        addStockItem(item, part);
+                        addStockItem(item, {
+                            pk: item.part,
+                            name: item.part_name,
+                            ipn: item.ipn,
+                            trackable: item.trackable
+                        });
+                        closePartDialog();
+                    }
+                });
+            });
+            partDialogContent.querySelectorAll('[data-dialog-add-variant]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const variant = variants.find((entry) => String(entry.pk) === button.dataset.dialogAddVariant);
+                    if (!variant) return;
+                    if (variant.trackable) {
+                        openPart(variant.pk, variant);
+                    } else {
+                        addPart(variant, 1);
                         closePartDialog();
                     }
                 });
@@ -630,15 +665,15 @@
                 return;
             }
             resultsContainer.innerHTML = parts.map((part) => {
-                const available = num(part.available);
+                const available = whole(part.available);
                 return `<tr>
-                    <td><button class="it-link" type="button" data-open-part="${part.pk}" aria-label="View details for ${esc(part.name)}">${esc(part.name)}</button></td>
+                    <td><button class="it-link" type="button" data-open-part="${part.pk}" aria-label="View details for ${esc(part.name)}">${esc(part.name)}</button>${part.variant_count ? `<div class="part-card-meta">${part.variant_count} variant${part.variant_count === 1 ? '' : 's'}</div>` : ''}</td>
                     <td>${esc(part.ipn || '—')}</td>
                     <td class="it-ellipsis" title="${esc(part.description || '')}">${esc(part.description || '—')}</td>
                     <td>${esc(part.category || '—')}</td>
                     <td class="it-num">${available > 0 ? available.toLocaleString() : '<span class="it-dim">Unavailable</span>'}</td>
                     <td class="it-actions">
-                        <button class="it-btn it-btn-light it-btn-small" type="button" data-add-part="${part.pk}" aria-label="Add ${esc(part.name)} to request" ${available <= 0 ? 'disabled' : ''}>Add</button>
+                        <button class="it-btn it-btn-light it-btn-small" type="button" data-add-part="${part.pk}" aria-label="Add ${esc(part.name)} to request" ${available < 1 ? 'disabled' : ''}>Add</button>
                     </td>
                 </tr>`;
             }).join('');
@@ -649,7 +684,7 @@
                 button.addEventListener('click', () => {
                     const part = state.parts.get(String(button.dataset.addPart));
                     if (!part) return;
-                    if (part.trackable) {
+                    if (part.trackable || part.is_template) {
                         openPart(part.pk, part);
                     } else {
                         addPart(part, 1);

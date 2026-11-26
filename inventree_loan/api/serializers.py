@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
 from rest_framework import serializers
 
 from ..models import LoanStaffRole, ReturnCondition
@@ -36,6 +38,19 @@ class PublicRequestCreateSerializer(RequestCreateSerializer):
     requester_name = serializers.CharField(max_length=150)
     requester_email = serializers.EmailField()
     signature = serializers.CharField()
+
+    def validate_lines(self, lines):
+        """Public request quantities are whole units."""
+        for line in lines:
+            try:
+                quantity = Decimal(str(line.get("quantity", 1)))
+            except (InvalidOperation, TypeError, ValueError):
+                raise serializers.ValidationError("Enter a valid quantity") from None
+            if quantity <= 0 or quantity != quantity.to_integral_value():
+                raise serializers.ValidationError(
+                    "Quantity must be a whole number"
+                )
+        return lines
 
 
 class DecisionSerializer(serializers.Serializer):

@@ -11,7 +11,7 @@ from django.utils.translation import gettext_lazy as _
 
 from ..models import LoanRequest, LoanRequestAllocation, LoanRequestStatus
 from ..permissions import can_approve, can_handout
-from .requests import available_stock_queryset, stock_item_available_quantity
+from .requests import available_stock_queryset, part_family_ids, stock_item_available_quantity
 
 
 def _quantity(value) -> Decimal:
@@ -161,7 +161,7 @@ def add_allocation(
     )
     if stock_item is None:
         raise ValidationError({"stock_item_id": _("The stock item does not exist")})
-    if stock_item.part_id != line.part_id:
+    if stock_item.part_id not in part_family_ids(line.part):
         raise ValidationError(
             {"stock_item_id": _("The stock item does not belong to this request line")}
         )
