@@ -510,22 +510,10 @@ function RequestDetailModal({ context, requestId, onClose, onAction, handoutMode
                               M.Stack,
                               { gap: 2 },
                               h(M.Text, { fw: 700, size: 'lg' }, detail.requester_name || detail.requester),
-                              h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_email || 'No email provided'),
-                              detail.requester_phone
-                                  ? h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_phone)
-                                  : null
+                              h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_email || 'No email provided')
                           ),
                           h(StatusBadge, { status: detail.status, label: detail.status_display })
                       ),
-                      detail.requester_organization || detail.requester_identifier
-                          ? h(
-                                M.Text,
-                                { size: 'sm', c: 'dimmed' },
-                                [detail.requester_organization, detail.requester_identifier]
-                                    .filter(Boolean)
-                                    .join(' · ')
-                            )
-                          : null,
                       h(M.Text, null, detail.purpose || 'No purpose provided.'),
                       h(
                           M.Group,
@@ -909,11 +897,7 @@ function RequestDetailPage({ context, requestId }) {
                     M.Stack,
                     { gap: 2 },
                     h(M.Text, { fw: 700 }, detail.requester_name || detail.requester),
-                    h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_email || 'No email provided'),
-                    detail.requester_phone ? h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_phone) : null,
-                    detail.requester_organization || detail.requester_identifier
-                        ? h(M.Text, { size: 'sm', c: 'dimmed' }, [detail.requester_organization, detail.requester_identifier].filter(Boolean).join(' · '))
-                        : null
+                    h(M.Text, { size: 'sm', c: 'dimmed' }, detail.requester_email || 'No email provided')
                 ),
                 h(
                     M.Group,
@@ -2784,13 +2768,6 @@ function HandoutPanel({ context, onDataChanged, refreshToken = 0 }) {
                                                       `Box ${request.pickup.reference}`
                                                   )
                                                 : null,
-                                            request.requester_organization
-                                                ? h(
-                                                      M.Text,
-                                                      { size: 'xs', c: 'dimmed' },
-                                                      request.requester_organization
-                                                  )
-                                                : null
                                         )
                                     ),
                                     h(
@@ -3622,9 +3599,7 @@ function PublicFormPanel({ context }) {
                             h(
                                 M.Table.Tr,
                                 null,
-                                h(M.Table.Th, null, 'Order'),
-                                h(M.Table.Th, null, 'Label'),
-                                h(M.Table.Th, null, 'Key'),
+                                h(M.Table.Th, null, 'Field'),
                                 h(M.Table.Th, null, 'Type'),
                                 h(M.Table.Th, null, 'Required'),
                                 h(M.Table.Th, null, 'Status'),
@@ -3638,7 +3613,6 @@ function PublicFormPanel({ context }) {
                                 h(
                                     M.Table.Tr,
                                     { key: field.pk },
-                                    h(M.Table.Td, null, index + 1),
                                     h(
                                         M.Table.Td,
                                         null,
@@ -3646,6 +3620,7 @@ function PublicFormPanel({ context }) {
                                             M.Stack,
                                             { gap: 0 },
                                             h(M.Text, { size: 'sm', fw: 500 }, field.label),
+                                            h(M.Code, null, field.key),
                                             field.help_text
                                                 ? h(
                                                       M.Text,
@@ -3655,7 +3630,6 @@ function PublicFormPanel({ context }) {
                                                 : null
                                         )
                                     ),
-                                    h(M.Table.Td, null, h(M.Code, null, field.key)),
                                     h(M.Table.Td, null, field.field_type_display),
                                     h(
                                         M.Table.Td,
@@ -3697,38 +3671,52 @@ function PublicFormPanel({ context }) {
                                                 'Edit'
                                             ),
                                             h(
-                                                M.Button,
-                                                {
-                                                    size: 'compact-xs',
-                                                    variant: 'subtle',
-                                                    color: 'gray',
-                                                    disabled: index === 0,
-                                                    onClick: () => move(field, -1),
-                                                    'aria-label': 'Move up'
-                                                },
-                                                '↑'
-                                            ),
-                                            h(
-                                                M.Button,
-                                                {
-                                                    size: 'compact-xs',
-                                                    variant: 'subtle',
-                                                    color: 'gray',
-                                                    disabled: index === orderedFields.length - 1,
-                                                    onClick: () => move(field, 1),
-                                                    'aria-label': 'Move down'
-                                                },
-                                                '↓'
-                                            ),
-                                            h(
-                                                M.Button,
-                                                {
-                                                    size: 'compact-xs',
-                                                    variant: 'light',
-                                                    color: field.active ? 'red' : 'green',
-                                                    onClick: () => setActive(field, !field.active)
-                                                },
-                                                field.active ? 'Archive' : 'Restore'
+                                                M.Menu,
+                                                { position: 'bottom-end', shadow: 'sm' },
+                                                h(
+                                                    M.Menu.Target,
+                                                    null,
+                                                    h(
+                                                        M.Button,
+                                                        {
+                                                            size: 'compact-xs',
+                                                            variant: 'subtle',
+                                                            color: 'gray'
+                                                        },
+                                                        'More'
+                                                    )
+                                                ),
+                                                h(
+                                                    M.Menu.Dropdown,
+                                                    null,
+                                                    h(
+                                                        M.Menu.Item,
+                                                        {
+                                                            disabled: index === 0,
+                                                            onClick: () => move(field, -1)
+                                                        },
+                                                        'Move up'
+                                                    ),
+                                                    h(
+                                                        M.Menu.Item,
+                                                        {
+                                                            disabled:
+                                                                index ===
+                                                                orderedFields.length - 1,
+                                                            onClick: () => move(field, 1)
+                                                        },
+                                                        'Move down'
+                                                    ),
+                                                    h(
+                                                        M.Menu.Item,
+                                                        {
+                                                            color: field.active ? 'red' : 'green',
+                                                            onClick: () =>
+                                                                setActive(field, !field.active)
+                                                        },
+                                                        field.active ? 'Archive' : 'Restore'
+                                                    )
+                                                )
                                             )
                                         )
                                     )
@@ -3846,6 +3834,52 @@ function PublicFormPanel({ context }) {
                     ),
                     h(M.Button, { loading: saving, onClick: save }, editing ? 'Save' : 'Add field')
                 )
+            )
+        )
+    );
+}
+
+function PluginSettingsPage({ context }) {
+    const [tab, setTab] = useState('setup');
+    const managementUrl =
+        context.context?.management_url || '/web/plugin/loan/management';
+    return h(
+        M.Stack,
+        { gap: 'md' },
+        h(
+            M.Group,
+            { justify: 'space-between', align: 'flex-end', wrap: 'wrap' },
+            h(
+                M.Stack,
+                { gap: 2 },
+                h(M.Title, { order: 3 }, 'Loan Manager settings'),
+                h(
+                    M.Text,
+                    { size: 'sm', c: 'dimmed' },
+                    'Configure the loan desk and the public request form.'
+                )
+            ),
+            h(
+                M.Group,
+                { gap: 'sm' },
+                h(M.Badge, { variant: 'light' }, 'InvenTree'),
+                h(M.Anchor, { href: managementUrl }, 'Open loan desk')
+            )
+        ),
+        h(
+            M.Tabs,
+            { value: tab, onChange: setTab, keepMounted: false },
+            h(
+                M.Tabs.List,
+                null,
+                h(M.Tabs.Tab, { value: 'setup' }, 'Setup'),
+                h(M.Tabs.Tab, { value: 'public-form' }, 'Public form')
+            ),
+            h(M.Tabs.Panel, { value: 'setup', pt: 'md' }, h(SetupPanel, { context })),
+            h(
+                M.Tabs.Panel,
+                { value: 'public-form', pt: 'md' },
+                h(PublicFormPanel, { context })
             )
         )
     );
@@ -4022,8 +4056,6 @@ function AdminConsole({ context }) {
     if (canHandout) tabs.push({ value: 'handout', label: 'Handout' });
     if (canManage) {
         tabs.push({ value: 'staff', label: 'Staff' });
-        tabs.push({ value: 'public-form', label: 'Public form' });
-        tabs.push({ value: 'setup', label: 'Setup' });
     }
     if (isManager) tabs.push({ value: 'history', label: 'History' });
 
@@ -4136,16 +4168,6 @@ function AdminConsole({ context }) {
                 : null,
             canManage
                 ? h(M.Tabs.Panel, { value: 'staff', pt: 'md' }, h(StaffPanel, { context }))
-                : null,
-            canManage
-                ? h(
-                      M.Tabs.Panel,
-                      { value: 'public-form', pt: 'md' },
-                      h(PublicFormPanel, { context })
-                  )
-                : null,
-            canManage
-                ? h(M.Tabs.Panel, { value: 'setup', pt: 'md' }, h(SetupPanel, { context }))
                 : null,
             isManager
                 ? h(M.Tabs.Panel, { value: 'history', pt: 'md' }, h(HistoryPanel, { context }))
@@ -4267,7 +4289,7 @@ function withRequestFallback(context) {
  * InvenTree renders this inside the standard plugin administration drawer.
  */
 export function renderPluginSettings(context) {
-    return h(AdminConsole, { context: withRequestFallback(context) });
+    return h(PluginSettingsPage, { context: withRequestFallback(context) });
 }
 
 /**

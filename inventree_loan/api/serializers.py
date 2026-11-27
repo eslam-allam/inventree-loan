@@ -23,19 +23,10 @@ class RequestCreateSerializer(serializers.Serializer):
     needed_by = serializers.DateField(required=False, allow_null=True)
     return_by = serializers.DateField(required=False, allow_null=True)
     notes = serializers.CharField(required=False, allow_blank=True, default="")
-    contact = serializers.CharField(required=False, allow_blank=True, default="")
-    project = serializers.CharField(required=False, allow_blank=True, default="")
     responsibility_ack = serializers.BooleanField(required=False, default=False)
     signature = serializers.CharField(required=False, allow_blank=True, default="")
     requester_name = serializers.CharField(required=False, allow_blank=True, default="")
     requester_email = serializers.EmailField(required=False, allow_blank=True, default="")
-    requester_phone = serializers.CharField(required=False, allow_blank=True, default="")
-    requester_organization = serializers.CharField(
-        required=False, allow_blank=True, default=""
-    )
-    requester_identifier = serializers.CharField(
-        required=False, allow_blank=True, default=""
-    )
 
 
 class PublicRequestCreateSerializer(RequestCreateSerializer):
@@ -54,10 +45,6 @@ class PublicRequestCreateSerializer(RequestCreateSerializer):
 
         config = get_public_field_config()
         required = {
-            "requester_phone": "phone",
-            "requester_organization": "organization",
-            "requester_identifier": "identifier",
-            "project": "project",
             "purpose": "purpose",
             "notes": "notes",
         }

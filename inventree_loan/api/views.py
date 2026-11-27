@@ -243,11 +243,7 @@ def _filter_request_list(queryset, params):
             | Q(requester__email__icontains=search)
             | Q(requester_name__icontains=search)
             | Q(requester_email__icontains=search)
-            | Q(requester_phone__icontains=search)
-            | Q(requester_organization__icontains=search)
-            | Q(requester_identifier__icontains=search)
             | Q(purpose__icontains=search)
-            | Q(project__icontains=search)
             | Q(notes__icontains=search)
             | Q(lines__part__name__icontains=search)
             | Q(lines__part__IPN__icontains=search)
@@ -316,9 +312,6 @@ def _request_summary_data(
         "requester_id": loan_request.requester_id,
         "requester_name": loan_request.requester_display,
         "requester_email": loan_request.requester_email_display,
-        "requester_phone": loan_request.requester_phone_display,
-        "requester_organization": loan_request.requester_organization,
-        "requester_identifier": loan_request.requester_identifier,
         "public_token": str(loan_request.public_token),
         "track_url": (
             reverse(
@@ -330,7 +323,6 @@ def _request_summary_data(
         ),
         "request_url": _web_url(f"/plugin/loan/requests/{loan_request.pk}"),
         "purpose": loan_request.purpose,
-        "project": loan_request.project,
         "needed_by": _iso(loan_request.needed_by),
         "return_by": _iso(loan_request.return_by),
         "created": _iso(loan_request.created),
@@ -606,9 +598,6 @@ def _request_data(request: LoanRequest, user) -> dict:
         "requester_id": request.requester_id,
         "requester_name": request.requester_display,
         "requester_email": request.requester_email_display,
-        "requester_phone": request.requester_phone_display,
-        "requester_organization": request.requester_organization,
-        "requester_identifier": request.requester_identifier,
         "signature": request.signature,
         "public_token": str(request.public_token),
         "track_url": (
@@ -621,8 +610,6 @@ def _request_data(request: LoanRequest, user) -> dict:
         "needed_by": _iso(request.needed_by),
         "return_by": _iso(request.return_by),
         "notes": request.notes,
-        "contact": request.contact,
-        "project": request.project,
         "decision_notes": request.decision_notes,
         "custom_fields": custom_field_values(request),
         "decided_by": str(request.decided_by) if request.decided_by else "",
@@ -776,7 +763,6 @@ def _public_request_data(loan_request: LoanRequest) -> dict:
         "purpose": loan_request.purpose,
         "needed_by": _iso(loan_request.needed_by),
         "return_by": _iso(loan_request.return_by),
-        "project": loan_request.project,
         "notes": loan_request.notes,
         "decision_notes": loan_request.decision_notes,
         "custom_fields": custom_field_values(loan_request),
@@ -973,14 +959,9 @@ class PublicRequestCreateView(APIView):
                 needed_by=data.get("needed_by"),
                 return_by=data.get("return_by"),
                 notes=data.get("notes", ""),
-                contact=data.get("contact", ""),
-                project=data.get("project", ""),
                 responsibility_ack=data.get("responsibility_ack", False),
                 requester_name=data.get("requester_name", ""),
                 requester_email=data.get("requester_email", ""),
-                requester_phone=data.get("requester_phone", ""),
-                requester_organization=data.get("requester_organization", ""),
-                requester_identifier=data.get("requester_identifier", ""),
                 signature=data.get("signature", ""),
                 allow_anonymous=True,
                 require_signature=True,
@@ -1109,14 +1090,9 @@ class RequestListCreateView(LoanAPIView):
                 needed_by=data.get("needed_by"),
                 return_by=data.get("return_by"),
                 notes=data.get("notes", ""),
-                contact=data.get("contact", ""),
-                project=data.get("project", ""),
                 responsibility_ack=data.get("responsibility_ack", False),
                 requester_name=data.get("requester_name", ""),
                 requester_email=data.get("requester_email", ""),
-                requester_phone=data.get("requester_phone", ""),
-                requester_organization=data.get("requester_organization", ""),
-                requester_identifier=data.get("requester_identifier", ""),
                 signature=data.get("signature", ""),
             )
         except DjangoValidationError as exc:

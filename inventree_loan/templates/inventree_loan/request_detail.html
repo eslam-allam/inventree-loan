@@ -56,8 +56,6 @@
                 <dt>{% trans "Requester" %}</dt><dd>{{ request_obj.requester.get_full_name|default:request_obj.requester.username }}</dd>
                 <dt>{% trans "Pickup date" %}</dt><dd>{{ request_obj.needed_by|date:"M j, Y"|default:"—" }}</dd>
                 <dt>{% trans "Requested return" %}</dt><dd>{{ request_obj.return_by|date:"M j, Y"|default:"—" }}</dd>
-                <dt>{% trans "Project / course" %}</dt><dd>{{ request_obj.project|default:"—" }}</dd>
-                <dt>{% trans "Contact" %}</dt><dd>{{ request_obj.contact|default:"—" }}</dd>
                 <dt>{% trans "Purpose" %}</dt><dd>{{ request_obj.purpose|default:"—"|linebreaksbr }}</dd>
                 <dt>{% trans "Notes" %}</dt><dd>{{ request_obj.notes|default:"—"|linebreaksbr }}</dd>
                 {% if request_obj.decided_by %}

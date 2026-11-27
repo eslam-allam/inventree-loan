@@ -132,30 +132,6 @@
                         <label class="loan-label" for="requester_email">{% trans "Email" %} <span class="loan-required">*</span></label>
                         <input class="loan-input" id="requester_email" name="requester_email" type="email" maxlength="254" autocomplete="email" required value="{{ requester_email }}">
                     </div>
-                    {% if public_fields.phone != 'hidden' %}
-                    <div class="loan-field">
-                        <label class="loan-label" for="requester_phone">{% trans "Phone" %}{% if public_fields.phone == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
-                        <input class="loan-input" id="requester_phone" name="requester_phone" type="tel" maxlength="50" autocomplete="tel"{% if public_fields.phone == 'required' %} required{% endif %}>
-                    </div>
-                    {% endif %}
-                    {% if public_fields.organization != 'hidden' %}
-                    <div class="loan-field">
-                        <label class="loan-label" for="requester_organization">{% trans "Organization or department" %}{% if public_fields.organization == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
-                        <input class="loan-input" id="requester_organization" name="requester_organization" maxlength="255" autocomplete="organization"{% if public_fields.organization == 'required' %} required{% endif %}>
-                    </div>
-                    {% endif %}
-                    {% if public_fields.identifier != 'hidden' %}
-                    <div class="loan-field">
-                        <label class="loan-label" for="requester_identifier">{% trans "Student or employee ID" %}{% if public_fields.identifier == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
-                        <input class="loan-input" id="requester_identifier" name="requester_identifier" maxlength="100" autocomplete="off"{% if public_fields.identifier == 'required' %} required{% endif %}>
-                    </div>
-                    {% endif %}
-                    {% if public_fields.project != 'hidden' %}
-                    <div class="loan-field">
-                        <label class="loan-label" for="project">{% trans "Project or course" %}{% if public_fields.project == 'required' %} <span class="loan-required">*</span>{% endif %}</label>
-                        <input class="loan-input" id="project" name="project" maxlength="255" autocomplete="off"{% if public_fields.project == 'required' %} required{% endif %}>
-                    </div>
-                    {% endif %}
                 </div>
 
                 {% if public_fields.pickup_date != 'hidden' or public_fields.return_date != 'hidden' %}

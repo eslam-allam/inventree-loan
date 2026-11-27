@@ -28,8 +28,7 @@
         <div>
             <h2>{% trans "Requester" %}</h2>
             <p><strong>{{ request_obj.requester_display }}</strong><br>
-            {{ request_obj.requester_email_display }}{% if request_obj.requester_phone_display %}<br>{{ request_obj.requester_phone_display }}{% endif %}</p>
-            {% if request_obj.requester_organization %}<p>{{ request_obj.requester_organization }}</p>{% endif %}
+            {{ request_obj.requester_email_display }}</p>
         </div>
         <div>
             <h2>{% trans "Request dates" %}</h2>

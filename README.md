@@ -10,8 +10,8 @@ a role-aware interface for requesters and loan desk staff.
 - A **public request catalogue** that works without an InvenTree account.
 - Browse loanable parts by category or search, open part details, and request a
   part and quantity. Specific stock units are assigned by the loan desk.
-- Anonymous requesters enter their own name, email, phone, organisation and ID,
-  so no InvenTree user account is required.
+- Anonymous requesters enter their name and email, so no InvenTree user account
+  is required. Additional questions can be added with the custom field builder.
 - Requesters sign at submission. The loan desk captures a second signature at
   handout, and a third at return.
 - Approvers can review, approve, and reject requests.
@@ -130,6 +130,11 @@ or, in a source install:
 python manage.py migrate
 ```
 
+> Upgrading existing installs runs a data migration that converts the old
+> phone, organization, student/employee ID and project/course fields into active
+> custom fields and backfills existing request values. Fresh installs do not
+> create those fields.
+
 ## Using the plugin
 
 The plugin adds a **Loans** tab to the InvenTree navigation bar, a **Loans** card
@@ -161,16 +166,20 @@ to the dashboard widget list, and a **Loan Manager** spotlight action.
 - **Loans (dashboard widget)** provides a requester shortcut and an
   **Open loan desk** button which opens the same native page.
 - The plugin settings page (Admin Center → Plugins → InvenTree Loan Manager)
-  uses the same native console for initial setup.
+  contains focused **Setup** and **Public form** panels, with a link to the loan
+  desk.
 - **Public request path**: plugin setting `Public request path` changes the
   public form from `/plugin/loan/request/` to `/plugin/loan/<slug>/`. The old
   path redirects to the configured one. A full custom domain can be added later
   with a reverse proxy.
-- **Public form fields**: phone, organization, ID, project, purpose, notes,
-  pickup date and return date can each be **Hidden**, **Optional** or
-  **Required** from plugin settings. Name and email remain required for tracking
-  and notifications. Signature and responsibility acknowledgement remain
-  controlled by their existing toggles.
+- **Public form fields**: purpose, notes, pickup date and return date can each be
+  **Hidden**, **Optional** or **Required** from plugin settings. Name and email
+  remain required for tracking and notifications. Signature and responsibility
+  acknowledgement remain controlled by their existing toggles.
+  - Phone, organization, student/employee ID and project/course are no longer
+    hard-coded core fields. On upgrade they are migrated into active custom
+    fields with existing request values retained. Fresh installs start without
+    them.
 - **Custom public form fields**: administrators can add any number of extra
   fields in the **Public form** tab. Support text, long text, number, email,
   phone, date, checkbox and dropdown fields, including help text, placeholders,
@@ -180,9 +189,10 @@ to the dashboard widget list, and a **Loan Manager** spotlight action.
 
 The native console adapts to the signed-in user's loan role: requesters see
 their own requests and loans, while loan staff additionally see the handout,
-staff, setup, and audit-history tabs. Handout and return dialogs require the
-borrower's signature. The Staff tab searches InvenTree users by name, username
-or email, so you do not need to know the exact username.
+staff, and audit-history tabs. Handout and return dialogs require the borrower's
+signature. The Staff tab searches InvenTree users by name, username or email, so
+you do not need to know the exact username. Setup and public-form configuration
+live in the plugin settings page.
 
 ## Initial setup
 
@@ -241,8 +251,8 @@ also need the normal InvenTree stock change role.
 1. Open the public page at `/plugin/loan/request/` (no account required).
 2. Browse categories or search, open a part to see its description and available
    stock items, and add the items you need.
-3. Enter your name, email, phone, organisation and optional ID, plus pickup and
-   return dates and the purpose.
+3. Enter your name and email, plus pickup/return dates, purpose and any custom
+   fields configured by the administrator.
 4. Accept the responsibility statement and sign in the signature box.
 5. Send the request. The confirmation includes a secret tracking link.
 6. Approvers receive an in-app notification (and email if enabled).

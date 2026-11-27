@@ -299,7 +299,7 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
 
     def test_public_form_fields_can_be_hidden(self):
         def fake_setting(key, default=None):
-            if key == "PUBLIC_FIELD_PHONE":
+            if key == "PUBLIC_FIELD_NOTES":
                 return "hidden"
             if key == "PUBLIC_FIELD_PURPOSE":
                 return "hidden"
@@ -308,7 +308,7 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         with patch("inventree_loan.config.get_setting", side_effect=fake_setting):
             response = self.client.get("/plugin/loan/request/")
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'id="requester_phone"')
+        self.assertNotContains(response, 'id="notes"')
         self.assertNotContains(response, 'id="purpose"')
         self.assertContains(response, 'id="requester_name"')
 
@@ -337,7 +337,7 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         from inventree_loan.api.serializers import PublicRequestCreateSerializer
 
         def fake_setting(key, default=None):
-            if key == "PUBLIC_FIELD_PHONE":
+            if key == "PUBLIC_FIELD_NOTES":
                 return "required"
             return default
 
@@ -353,7 +353,7 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
                 }
             )
             self.assertFalse(serializer.is_valid())
-        self.assertIn("requester_phone", serializer.errors)
+        self.assertIn("notes", serializer.errors)
 
     def test_public_part_detail_hides_stock_items(self):
         response = self.client.get(

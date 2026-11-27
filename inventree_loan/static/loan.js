@@ -848,11 +848,7 @@
             successBox.hidden = true;
             const name = $('#requester_name')?.value.trim() || '';
             const email = $('#requester_email')?.value.trim() || '';
-            const phone = $('#requester_phone')?.value.trim() || '';
-            const organization = $('#requester_organization')?.value.trim() || '';
-            const identifier = $('#requester_identifier')?.value.trim() || '';
             const purpose = $('#purpose')?.value.trim() || '';
-            const project = $('#project')?.value.trim() || '';
             const notes = $('#notes')?.value.trim() || '';
             const acknowledged = $('#responsibility_ack')?.checked;
             const neededBy = $('#needed_by')?.value;
@@ -928,9 +924,6 @@
             const payload = {
                 requester_name: name,
                 requester_email: email,
-                requester_phone: phone,
-                requester_organization: organization,
-                requester_identifier: identifier,
                 lines: state.lines.map((line) => ({
                     part_id: line.part_id,
                     quantity: line.quantity
@@ -939,8 +932,6 @@
                 needed_by: neededBy || null,
                 return_by: returnBy || null,
                 notes,
-                contact: phone,
-                project,
                 responsibility_ack: Boolean(acknowledged),
                 signature: signatureValue,
                 custom_fields: customFields

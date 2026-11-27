@@ -115,7 +115,6 @@ def _base_context(request, page: str, **extra) -> dict:
             else ""
         ),
         "requester_email": request.user.email if authenticated else "",
-        "requester_phone": "",
     }
     context.update(extra)
     return context

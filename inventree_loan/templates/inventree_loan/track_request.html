@@ -52,9 +52,6 @@
             <dl class="loan-details">
                 <dt>{% trans "Name" %}</dt><dd>{{ request_obj.requester_display }}</dd>
                 <dt>{% trans "Email" %}</dt><dd>{{ request_obj.requester_email_display|default:"—" }}</dd>
-                <dt>{% trans "Phone" %}</dt><dd>{{ request_obj.requester_phone_display|default:"—" }}</dd>
-                {% if request_obj.requester_organization %}<dt>{% trans "Organization" %}</dt><dd>{{ request_obj.requester_organization }}</dd>{% endif %}
-                {% if request_obj.requester_identifier %}<dt>{% trans "ID" %}</dt><dd>{{ request_obj.requester_identifier }}</dd>{% endif %}
                 <dt>{% trans "Pickup date" %}</dt><dd>{{ request_obj.needed_by|date:"M j, Y"|default:"—" }}</dd>
                 <dt>{% trans "Requested return" %}</dt><dd>{{ request_obj.return_by|date:"M j, Y"|default:"—" }}</dd>
                 <dt>{% trans "Purpose" %}</dt><dd>{{ request_obj.purpose|default:"—"|linebreaksbr }}</dd>

@@ -137,15 +137,6 @@ class LoanRequest(LoanBaseModel):
         max_length=150, blank=True, verbose_name=_("Requester name")
     )
     requester_email = models.EmailField(blank=True, verbose_name=_("Requester email"))
-    requester_phone = models.CharField(
-        max_length=50, blank=True, verbose_name=_("Requester phone")
-    )
-    requester_organization = models.CharField(
-        max_length=255, blank=True, verbose_name=_("Organization / department")
-    )
-    requester_identifier = models.CharField(
-        max_length=100, blank=True, verbose_name=_("Student / employee ID")
-    )
     signature = models.TextField(blank=True, verbose_name=_("Requester signature"))
     public_token = models.UUIDField(
         null=True,
@@ -169,12 +160,6 @@ class LoanRequest(LoanBaseModel):
         null=True, blank=True, verbose_name=_("Requested return date")
     )
     notes = models.TextField(blank=True, verbose_name=_("Additional notes"))
-    contact = models.CharField(
-        max_length=255, blank=True, verbose_name=_("Contact details")
-    )
-    project = models.CharField(
-        max_length=255, blank=True, verbose_name=_("Project / course / department")
-    )
     responsibility_ack = models.BooleanField(
         default=False, verbose_name=_("Responsibility acknowledged")
     )
@@ -267,8 +252,8 @@ class LoanRequest(LoanBaseModel):
 
     @property
     def requester_phone_display(self) -> str:
-        """Phone number for the requester."""
-        return self.requester_phone or self.contact
+        """Phone number stored in the migrated custom field."""
+        return str((self.custom_fields or {}).get("phone", "") or "")
 
     @classmethod
     def check_user_permission(cls, user, permission: str) -> bool:

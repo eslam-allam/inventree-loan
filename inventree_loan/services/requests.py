@@ -654,14 +654,9 @@ def create_request(
     needed_by: date | None = None,
     return_by: date | None = None,
     notes: str = "",
-    contact: str = "",
-    project: str = "",
     responsibility_ack: bool = False,
     requester_name: str = "",
     requester_email: str = "",
-    requester_phone: str = "",
-    requester_organization: str = "",
-    requester_identifier: str = "",
     signature: str = "",
     allow_anonymous: bool = False,
     require_signature: bool = True,
@@ -699,7 +694,6 @@ def create_request(
             or user.username
         )
         requester_email = (requester_email or "").strip() or user.email
-        requester_phone = (requester_phone or "").strip() or (contact or "").strip()
 
     if get_setting("REQUIRE_RESPONSIBILITY_ACK", True) and not responsibility_ack:
         raise ValidationError(
@@ -735,16 +729,11 @@ def create_request(
         requester=user,
         requester_name=requester_name,
         requester_email=requester_email,
-        requester_phone=(requester_phone or "").strip(),
-        requester_organization=(requester_organization or "").strip(),
-        requester_identifier=(requester_identifier or "").strip(),
         signature=signature,
         purpose=(purpose or "").strip(),
         needed_by=needed_by,
         return_by=return_by,
         notes=(notes or "").strip(),
-        contact=(contact or "").strip(),
-        project=(project or "").strip(),
         responsibility_ack=responsibility_ack,
         custom_fields=custom_fields,
     )

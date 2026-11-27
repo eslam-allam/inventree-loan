@@ -27,10 +27,6 @@ def get_frontend_base() -> str:
 
 
 PUBLIC_FIELD_SETTINGS = {
-    "phone": "PUBLIC_FIELD_PHONE",
-    "organization": "PUBLIC_FIELD_ORGANIZATION",
-    "identifier": "PUBLIC_FIELD_IDENTIFIER",
-    "project": "PUBLIC_FIELD_PROJECT",
     "purpose": "PUBLIC_FIELD_PURPOSE",
     "notes": "PUBLIC_FIELD_NOTES",
     "pickup_date": "PUBLIC_FIELD_PICKUP_DATE",

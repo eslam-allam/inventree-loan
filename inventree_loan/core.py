@@ -246,30 +246,6 @@ class InvenTreeLoanPlugin(
             ),
             "default": "request",
         },
-        "PUBLIC_FIELD_PHONE": {
-            "name": _("Public form: phone"),
-            "description": _("Show or require the phone field on the public request form."),
-            "default": "optional",
-            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
-        },
-        "PUBLIC_FIELD_ORGANIZATION": {
-            "name": _("Public form: organization"),
-            "description": _("Show or require the organization field on the public request form."),
-            "default": "optional",
-            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
-        },
-        "PUBLIC_FIELD_IDENTIFIER": {
-            "name": _("Public form: student/employee ID"),
-            "description": _("Show or require the student/employee ID field on the public request form."),
-            "default": "optional",
-            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
-        },
-        "PUBLIC_FIELD_PROJECT": {
-            "name": _("Public form: project or course"),
-            "description": _("Show or require the project/course field on the public request form."),
-            "default": "optional",
-            "choices": [("hidden", _("Hidden")), ("optional", _("Optional")), ("required", _("Required"))],
-        },
         "PUBLIC_FIELD_PURPOSE": {
             "name": _("Public form: purpose"),
             "description": _("Show or require the purpose field on the public request form."),
