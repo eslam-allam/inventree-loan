@@ -241,6 +241,91 @@
     /* ------------------------------------------------------------------
        Dashboard scan
        ------------------------------------------------------------------ */
+    function initThemeToggle() {
+        const root = document.documentElement;
+        const buttons = $$('[data-theme-choice]');
+        if (!buttons.length) return;
+
+        const publicKey = 'inventree-loan-theme';
+        const inventreeKey = 'mantine-color-scheme-value';
+        const valid = (value) => ['auto', 'light', 'dark'].includes(value);
+        const authenticated = root.dataset.inheritInventreeTheme === 'true';
+        const media = window.matchMedia('(prefers-color-scheme: dark)');
+        const read = (key) => {
+            try {
+                return localStorage.getItem(key);
+            } catch (error) {
+                return null;
+            }
+        };
+        let mode = valid(root.dataset.themeMode) ? root.dataset.themeMode : 'auto';
+        let inherited = root.dataset.themeInherited === 'true';
+
+        const applyMode = (nextMode, nextInherited = inherited, persist = false) => {
+            mode = valid(nextMode) ? nextMode : 'auto';
+            inherited = Boolean(nextInherited);
+            if (mode === 'light' || mode === 'dark') {
+                root.dataset.theme = mode;
+            } else {
+                root.removeAttribute('data-theme');
+            }
+            root.dataset.themeMode = mode;
+            root.dataset.themeInherited = inherited ? 'true' : 'false';
+            const dark =
+                mode === 'dark' ||
+                (mode === 'auto' && media.matches);
+            root.style.colorScheme = dark ? 'dark' : 'light';
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', dark ? '#111827' : '#f8fafc');
+            buttons.forEach((button) => {
+                const active = button.dataset.themeChoice === mode;
+                button.classList.toggle('is-active', active);
+                button.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+            if (persist) {
+                try {
+                    localStorage.setItem(publicKey, mode);
+                } catch (error) {}
+            }
+        };
+
+        buttons.forEach((button) => {
+            button.addEventListener('click', () => {
+                applyMode(button.dataset.themeChoice, false, true);
+            });
+        });
+
+        const onSystemChange = () => {
+            if (mode === 'auto') applyMode('auto', inherited);
+        };
+        if (media.addEventListener) {
+            media.addEventListener('change', onSystemChange);
+        } else if (media.addListener) {
+            media.addListener(onSystemChange);
+        }
+
+        window.addEventListener('storage', (event) => {
+            if (event.key === publicKey) {
+                if (valid(event.newValue)) {
+                    applyMode(event.newValue, false);
+                } else if (authenticated) {
+                    const source = read(inventreeKey);
+                    applyMode(valid(source) ? source : 'auto', true);
+                } else {
+                    applyMode('auto', false);
+                }
+            } else if (
+                event.key === inventreeKey &&
+                authenticated &&
+                inherited
+            ) {
+                applyMode(valid(event.newValue) ? event.newValue : 'auto', true);
+            }
+        });
+
+        applyMode(mode, inherited);
+    }
+
     function initDashboard() {
         const form = $('[data-scan-form]');
         if (!form) return;
@@ -1534,6 +1619,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         addCameraButtons();
+        initThemeToggle();
         initDashboard();
         initRequestForm();
         initRequestActions();

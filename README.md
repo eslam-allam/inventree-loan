@@ -46,6 +46,9 @@ a role-aware interface for requesters and loan desk staff.
   detail action.
 - The public request path and the visibility/required state of core public form
   fields are configurable from plugin settings.
+- Public pages have an **Auto / Light / Dark** theme switch. The choice is
+  remembered per browser. Logged-in users inherit their current InvenTree theme
+  on first visit; Auto follows the operating system.
 - Administrators can add **arbitrary custom fields** to the public form from a
   **Public form** tab, with text, long text, number, email, phone, date,
   checkbox and dropdown types, required/optional state, help text and ordering.

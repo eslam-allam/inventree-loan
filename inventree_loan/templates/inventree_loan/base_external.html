@@ -1,13 +1,49 @@
 {% load static i18n %}
 <!doctype html>
-<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<html lang="{{ LANGUAGE_CODE|default:'en' }}" data-inherit-inventree-theme="{% if is_authenticated %}true{% else %}false{% endif %}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <meta name="color-scheme" content="light dark">
-    <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f8fafc">
+    <script>
+        (() => {
+            try {
+                const root = document.documentElement;
+                const publicKey = "inventree-loan-theme";
+                const inventreeKey = "mantine-color-scheme-value";
+                const valid = (value) => ["auto", "light", "dark"].includes(value);
+                let mode = localStorage.getItem(publicKey);
+                let inherited = false;
+                if (!valid(mode)) {
+                    mode = null;
+                    if (root.dataset.inheritInventreeTheme === "true") {
+                        const source = localStorage.getItem(inventreeKey);
+                        if (valid(source)) {
+                            mode = source;
+                            inherited = true;
+                        }
+                    }
+                    if (!mode) mode = "auto";
+                }
+                if (mode === "light" || mode === "dark") {
+                    root.dataset.theme = mode;
+                } else {
+                    root.removeAttribute("data-theme");
+                }
+                root.dataset.themeMode = mode;
+                root.dataset.themeInherited = inherited ? "true" : "false";
+                const dark =
+                    mode === "dark" ||
+                    (mode === "auto" &&
+                        window.matchMedia("(prefers-color-scheme: dark)").matches);
+                root.style.colorScheme = dark ? "dark" : "light";
+                const meta = document.querySelector('meta[name="theme-color"]');
+                if (meta) meta.setAttribute("content", dark ? "#111827" : "#f8fafc");
+            } catch (error) {}
+        })();
+    </script>
     <title>{% block title %}{% trans "Request a loan" %}{% endblock %} · InvenTree</title>
     <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'loan.css' %}">
     <link rel="stylesheet" href="{% url 'plugin:loan:asset' 'public.css' %}">
@@ -37,6 +73,17 @@
         </nav>
 
         <div class="ext-user">
+            <div class="theme-switch" role="group" aria-label="{% trans 'Color theme' %}" data-theme-switch>
+                <button class="theme-choice" type="button" data-theme-choice="auto" aria-pressed="false" aria-label="{% trans 'Auto theme' %}" title="{% trans 'Auto theme' %}">
+                    <span class="theme-choice-icon" aria-hidden="true">◐</span><span class="theme-choice-label">{% trans "Auto" %}</span>
+                </button>
+                <button class="theme-choice" type="button" data-theme-choice="light" aria-pressed="false" aria-label="{% trans 'Light theme' %}" title="{% trans 'Light theme' %}">
+                    <span class="theme-choice-icon" aria-hidden="true">☀</span><span class="theme-choice-label">{% trans "Light" %}</span>
+                </button>
+                <button class="theme-choice" type="button" data-theme-choice="dark" aria-pressed="false" aria-label="{% trans 'Dark theme' %}" title="{% trans 'Dark theme' %}">
+                    <span class="theme-choice-icon" aria-hidden="true">☾</span><span class="theme-choice-label">{% trans "Dark" %}</span>
+                </button>
+            </div>
             {% if is_manager %}
                 <a class="loan-btn loan-btn-sm" href="{% url 'plugin:loan:dashboard' %}">{% trans "Staff console" %}</a>
             {% endif %}

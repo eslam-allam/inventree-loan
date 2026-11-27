@@ -284,6 +284,26 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
                 signature=TEST_SIGNATURE,
             )
 
+    def test_public_theme_toggle_markup(self):
+        self.client.logout()
+        response = self.client.get("/plugin/loan/request/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-theme-switch')
+        self.assertContains(response, 'data-theme-choice="auto"')
+        self.assertContains(response, 'data-theme-choice="light"')
+        self.assertContains(response, 'data-theme-choice="dark"')
+        self.assertContains(response, "inventree-loan-theme")
+        self.assertContains(response, "mantine-color-scheme-value")
+        self.assertContains(
+            response, 'data-inherit-inventree-theme="false"'
+        )
+
+        self.client.force_login(self.user)
+        response = self.client.get("/plugin/loan/request/")
+        self.assertContains(
+            response, 'data-inherit-inventree-theme="true"'
+        )
+
     def test_public_request_slug_setting(self):
         def fake_setting(key, default=None):
             if key == "PUBLIC_REQUEST_SLUG":
