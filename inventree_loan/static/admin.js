@@ -15,6 +15,7 @@ const { useCallback, useEffect, useMemo, useRef, useState } = React;
 const STATUS_COLORS = {
     pending: 'yellow',
     approved: 'blue',
+    partially_approved: 'orange',
     ready_for_pickup: 'teal',
     packing: 'gray',
     ready: 'teal',
@@ -268,6 +269,7 @@ function StatCard({ label, value, color }) {
 const REQUEST_STATUS_OPTIONS = [
     { value: 'pending', label: 'Pending' },
     { value: 'approved', label: 'Approved' },
+    { value: 'partially_approved', label: 'Partially approved' },
     { value: 'ready_for_pickup', label: 'Ready for pickup' },
     { value: 'partially_fulfilled', label: 'Partially fulfilled' },
     { value: 'fulfilled', label: 'Fulfilled' },
@@ -556,7 +558,15 @@ function RequestDetailModal({ context, requestId, onClose, onAction, handoutMode
                           h(
                               M.Table.Tbody,
                               null,
-                              (detail.lines || []).map((line) =>
+                              (detail.lines || [])
+                                  .filter(
+                                      (line) =>
+                                          line.approved_quantity > 0 ||
+                                          !['approved', 'partially_approved', 'ready_for_pickup'].includes(
+                                              detail.status
+                                          )
+                                  )
+                                  .map((line) =>
                                   h(
                                       M.Table.Tr,
                                       { key: line.pk },
@@ -573,7 +583,13 @@ function RequestDetailModal({ context, requestId, onClose, onAction, handoutMode
                                               ? h(M.Anchor, { href: line.stock_item_url, target: '_blank' }, line.stock_item_label)
                                               : line.stock_item_label || 'Any available'
                                       ),
-                                      h(M.Table.Td, null, line.quantity),
+                                      h(
+                                          M.Table.Td,
+                                          null,
+                                          line.approved_quantity > 0
+                                              ? line.approved_quantity
+                                              : line.quantity
+                                      ),
                                       h(M.Table.Td, null, line.notes || '—')
                                   )
                               )
@@ -675,6 +691,14 @@ function RequestDetailPage({ context, requestId }) {
     const [readyNotes, setReadyNotes] = useState('');
     const [readyError, setReadyError] = useState('');
     const [readyBusy, setReadyBusy] = useState(false);
+    const [approvalOpen, setApprovalOpen] = useState(false);
+    const [approvalLines, setApprovalLines] = useState([]);
+    const [approvalNotes, setApprovalNotes] = useState('');
+    const [approvalError, setApprovalError] = useState('');
+    const [approvalBusy, setApprovalBusy] = useState(false);
+    const approvalRequested = useRef(
+        new URLSearchParams(window.location.search).get('approve') === '1'
+    );
 
     useEffect(() => {
         let active = true;
@@ -692,7 +716,52 @@ function RequestDetailPage({ context, requestId }) {
         };
     }, [api, requestId, reloadKey]);
 
+    useEffect(() => {
+        if (!detail || !approvalRequested.current || !detail.can_approve) return;
+        approvalRequested.current = false;
+        openApprovalFor(detail);
+        const url = new URL(window.location.href);
+        url.searchParams.delete('approve');
+        window.history.replaceState({}, '', url);
+    }, [detail]);
+
     const reload = () => setReloadKey((value) => value + 1);
+
+    const openApprovalFor = (data) => {
+        setApprovalLines(
+            (data.lines || []).map((line) => ({
+                line_id: line.pk,
+                part_name: line.part_name,
+                requested: Number(line.quantity) || 0,
+                approved:
+                    data.status === 'pending'
+                        ? Number(line.quantity) || 0
+                        : Number(line.approved_quantity) || 0,
+                allocated: Number(line.allocated_quantity) || 0
+            }))
+        );
+        setApprovalNotes(data.decision_notes || '');
+        setApprovalError('');
+        setApprovalOpen(true);
+    };
+
+    const submitApproval = () => {
+        setApprovalBusy(true);
+        setApprovalError('');
+        api.post(`/plugin/loan/api/requests/${requestId}/approve/`, {
+            notes: approvalNotes,
+            lines: approvalLines.map((line) => ({
+                line_id: line.line_id,
+                quantity: Number(line.approved) || 0
+            }))
+        })
+            .then((response) => {
+                setDetail(response.data);
+                setApprovalOpen(false);
+            })
+            .catch((err) => setApprovalError(errorText(err)))
+            .finally(() => setApprovalBusy(false));
+    };
 
     const allocate = (payload) => {
         setBusy('allocate');
@@ -858,7 +927,12 @@ function RequestDetailPage({ context, requestId }) {
     const returnReceipt = detail?.loan_pk && detail?.loan_status === 'returned'
         ? `/plugin/loan/loans/${detail.loan_pk}/receipt/?type=return`
         : null;
-    const canAllocate = Boolean(detail?.can_approve || detail?.can_handout || detail?.can_checkout);
+    const canAllocate = Boolean(
+        (detail?.can_approve || detail?.can_handout) &&
+            ['approved', 'partially_approved', 'ready_for_pickup'].includes(
+                detail?.status
+            )
+    );
     const fulfilled = Boolean(detail?.loan_pk) || detail?.status === 'fulfilled';
 
     if (error) {
@@ -902,7 +976,19 @@ function RequestDetailPage({ context, requestId }) {
                 h(
                     M.Group,
                     { gap: 'xs' },
-                    detail.can_approve ? h(M.Button, { size: 'xs', color: 'green', onClick: () => setAction('approve') }, 'Approve') : null,
+                    detail.can_approve
+                        ? h(
+                              M.Button,
+                              {
+                                  size: 'xs',
+                                  color: 'green',
+                                  onClick: () => openApprovalFor(detail)
+                              },
+                              detail.status === 'partially_approved'
+                                  ? 'Review approval'
+                                  : 'Approve'
+                          )
+                        : null,
                     detail.can_approve ? h(M.Button, { size: 'xs', color: 'red', variant: 'light', onClick: () => setAction('reject') }, 'Reject') : null,
                     detail.can_mark_ready
                         ? h(
@@ -1072,6 +1158,7 @@ function RequestDetailPage({ context, requestId }) {
                         null,
                         h(M.Table.Th, null, 'Part'),
                         h(M.Table.Th, null, 'Requested'),
+                        h(M.Table.Th, null, 'Approved'),
                         h(M.Table.Th, null, 'Allocated'),
                         h(M.Table.Th, null, 'Outstanding'),
                         h(M.Table.Th, null, 'Available'),
@@ -1098,9 +1185,22 @@ function RequestDetailPage({ context, requestId }) {
                                 h(
                                     M.Table.Td,
                                     null,
+                                    line.approved_quantity > 0
+                                        ? h(
+                                              M.Badge,
+                                              { color: 'blue', variant: 'light' },
+                                              line.approved_quantity
+                                          )
+                                        : h(M.Text, { size: 'xs', c: 'dimmed' }, 'Not approved')
+                                ),
+                                h(
+                                    M.Table.Td,
+                                    null,
                                     fulfilled
                                         ? h(M.Badge, { color: 'green', variant: 'light' }, 'Issued')
-                                        : h(M.Badge, { color: line.is_fully_allocated ? 'green' : line.allocated_quantity > 0 ? 'yellow' : 'gray', variant: 'light' }, `${line.allocated_quantity} / ${line.quantity}`)
+                                        : line.approved_quantity > 0
+                                          ? h(M.Badge, { color: line.is_fully_allocated ? 'green' : line.allocated_quantity > 0 ? 'yellow' : 'gray', variant: 'light' }, `${line.allocated_quantity} / ${line.approved_quantity}`)
+                                          : h(M.Text, { size: 'xs', c: 'dimmed' }, '—')
                                 ),
                                 h(M.Table.Td, null, fulfilled ? '0' : line.unallocated_quantity),
                                 h(M.Table.Td, null, fulfilled ? '—' : line.available_stock),
@@ -1111,7 +1211,10 @@ function RequestDetailPage({ context, requestId }) {
                                         M.Group,
                                         { gap: 4, wrap: 'nowrap' },
                                         h(M.Anchor, { href: line.part_url || '#', target: '_blank', size: 'xs' }, 'View part'),
-                                        canAllocate && !fulfilled && !line.is_fully_allocated
+                                        canAllocate &&
+                                        !fulfilled &&
+                                        line.approved_quantity > 0 &&
+                                        !line.is_fully_allocated
                                             ? h(M.Button, { size: 'compact-xs', variant: 'light', onClick: () => openManualAllocation(line) }, 'Allocate')
                                             : null
                                     )
@@ -1123,7 +1226,7 @@ function RequestDetailPage({ context, requestId }) {
                                       null,
                                       h(
                                           M.Table.Td,
-                                          { colSpan: 6 },
+                                          { colSpan: 7 },
                                           h(
                                               M.Stack,
                                               { gap: 4 },
@@ -1174,6 +1277,128 @@ function RequestDetailPage({ context, requestId }) {
         h(
             M.Modal,
             {
+                opened: approvalOpen,
+                onClose: () => setApprovalOpen(false),
+                title: 'Approve request quantities',
+                size: 'xl',
+                centered: true
+            },
+            h(
+                M.Stack,
+                { gap: 'sm' },
+                h(
+                    M.Text,
+                    { size: 'sm', c: 'dimmed' },
+                    'Approve some or all requested quantities. Unapproved quantities are not allocated or handed out.'
+                ),
+                h(
+                    'div',
+                    { style: { overflowX: 'auto' } },
+                    h(
+                        M.Table,
+                        { verticalSpacing: 'xs' },
+                        h(
+                            M.Table.Thead,
+                            null,
+                            h(
+                                M.Table.Tr,
+                                null,
+                                h(M.Table.Th, null, 'Part'),
+                                h(M.Table.Th, null, 'Requested'),
+                                h(M.Table.Th, null, 'Allocated'),
+                                h(M.Table.Th, null, 'Approved')
+                            )
+                        ),
+                        h(
+                            M.Table.Tbody,
+                            null,
+                            approvalLines.map((line, index) =>
+                                h(
+                                    M.Table.Tr,
+                                    { key: line.line_id },
+                                    h(M.Table.Td, null, line.part_name),
+                                    h(M.Table.Td, null, line.requested),
+                                    h(M.Table.Td, null, line.allocated),
+                                    h(
+                                        M.Table.Td,
+                                        null,
+                                        h(M.NumberInput, {
+                                            size: 'xs',
+                                            min: line.allocated,
+                                            max: line.requested,
+                                            step: 'any',
+                                            value: line.approved,
+                                            onChange: (value) =>
+                                                setApprovalLines((current) =>
+                                                    current.map((item, itemIndex) =>
+                                                        itemIndex === index
+                                                            ? {
+                                                                  ...item,
+                                                                  approved:
+                                                                      value === '' ||
+                                                                      value === null ||
+                                                                      value === undefined
+                                                                          ? 0
+                                                                          : Number(value)
+                                                              }
+                                                            : item
+                                                    )
+                                                )
+                                        })
+                                    )
+                                )
+                            )
+                        )
+                    )
+                ),
+                h(
+                    M.Group,
+                    { justify: 'space-between', align: 'flex-end', wrap: 'wrap' },
+                    h(
+                        M.Button,
+                        {
+                            size: 'xs',
+                            variant: 'light',
+                            onClick: () =>
+                                setApprovalLines((current) =>
+                                    current.map((line) => ({
+                                        ...line,
+                                        approved: line.requested
+                                    }))
+                                )
+                        },
+                        'Approve all requested'
+                    ),
+                    h(M.Text, { size: 'xs', c: 'dimmed' }, 'Set a quantity to 0 to leave it unapproved.')
+                ),
+                h(M.Textarea, {
+                    label: 'Decision notes',
+                    minRows: 2,
+                    value: approvalNotes,
+                    onChange: (event) => setApprovalNotes(event.currentTarget.value)
+                }),
+                h(ErrorAlert, { error: approvalError }),
+                h(
+                    M.Group,
+                    { justify: 'flex-end' },
+                    h(
+                        M.Button,
+                        { variant: 'default', onClick: () => setApprovalOpen(false) },
+                        'Cancel'
+                    ),
+                    h(
+                        M.Button,
+                        { loading: approvalBusy, onClick: submitApproval },
+                        detail?.status === 'partially_approved'
+                            ? 'Update approval'
+                            : 'Approve quantities'
+                    )
+                )
+            )
+        ),
+        h(
+            M.Modal,
+            {
                 opened: readyOpen,
                 onClose: () => setReadyOpen(false),
                 title: 'Ready for pickup',
@@ -1185,14 +1410,14 @@ function RequestDetailPage({ context, requestId }) {
                 h(
                     M.Text,
                     { size: 'sm', c: 'dimmed' },
-                    'Put every requested item in the box or bag, then print the box label. All lines must be fully allocated first.'
+                    'Put every approved item in the box or bag, then print the box label. All approved quantities must be fully allocated first.'
                 ),
                 detail?.is_fully_allocated
                     ? null
                     : h(
                           M.Alert,
                           { color: 'orange' },
-                          'This request still has unallocated items. Use Auto allocate or Allocate on each line first.'
+                          'This request still has unallocated approved items. Use Auto allocate or Allocate on each line first.'
                       ),
                 h(M.TextInput, {
                     label: 'Box / bag name (optional)',
@@ -1599,7 +1824,7 @@ function RequestsPanel({ context, onDataChanged, refreshToken = 0 }) {
                                             : request.status === 'rejected' ||
                                                 request.status === 'cancelled'
                                               ? h(M.Text, { size: 'xs', c: 'dimmed' }, '—')
-                                              : Number(request.total_quantity) > 0
+                                              : Number(request.approved_quantity) > 0
                                                 ? request.is_fully_allocated
                                                     ? h(
                                                           M.Badge,
@@ -1609,9 +1834,9 @@ function RequestsPanel({ context, onDataChanged, refreshToken = 0 }) {
                                                     : h(
                                                           M.Badge,
                                                           { color: 'orange', variant: 'light', size: 'sm' },
-                                                          `${formatQty(request.allocated_quantity)} / ${formatQty(request.total_quantity)}`
+                                                          `${formatQty(request.allocated_quantity)} / ${formatQty(request.approved_quantity)}`
                                                       )
-                                                : h(M.Text, { size: 'xs', c: 'dimmed' }, '—')
+                                                : h(M.Text, { size: 'xs', c: 'dimmed' }, 'Not approved')
                                     ),
                                     h(M.Table.Td, null, formatDate(request.created)),
                                     h(
@@ -1638,9 +1863,14 @@ function RequestsPanel({ context, onDataChanged, refreshToken = 0 }) {
                                                       {
                                                           size: 'xs',
                                                           color: 'green',
-                                                          onClick: () => openAction(request, 'approve')
+                                                          onClick: () =>
+                                                              context.navigate(
+                                                                  `/plugin/loan/requests/${request.pk}?approve=1`
+                                                              )
                                                       },
-                                                      'Approve'
+                                                      request.status === 'partially_approved'
+                                                          ? 'Review approval'
+                                                          : 'Approve'
                                                   )
                                                 : null,
                                             request.can_approve
@@ -2803,16 +3033,22 @@ function HandoutPanel({ context, onDataChanged, refreshToken = 0 }) {
                                     h(
                                         M.Table.Td,
                                         null,
-                                        request.is_fully_allocated
-                                            ? h(
-                                                  M.Badge,
-                                                  { color: 'green', variant: 'light', size: 'sm' },
-                                                  'Allocated'
-                                              )
+                                        Number(request.approved_quantity) > 0
+                                            ? request.is_fully_allocated
+                                                ? h(
+                                                      M.Badge,
+                                                      { color: 'green', variant: 'light', size: 'sm' },
+                                                      'Allocated'
+                                                  )
+                                                : h(
+                                                      M.Badge,
+                                                      { color: 'orange', variant: 'light', size: 'sm' },
+                                                      `${formatQty(request.allocated_quantity)} / ${formatQty(request.approved_quantity)}`
+                                                  )
                                             : h(
-                                                  M.Badge,
-                                                  { color: 'orange', variant: 'light', size: 'sm' },
-                                                  `${formatQty(request.allocated_quantity)} / ${formatQty(request.total_quantity)}`
+                                                  M.Text,
+                                                  { size: 'xs', c: 'dimmed' },
+                                                  'Not approved'
                                               )
                                     ),
                                     h(M.Table.Td, null, formatDate(request.needed_by)),
@@ -4099,7 +4335,7 @@ function AdminConsole({ context }) {
         access
             ? h(
                   M.SimpleGrid,
-                  { cols: { base: 2, sm: 5 }, spacing: 'sm' },
+                  { cols: { base: 2, sm: 6 }, spacing: 'sm' },
                   h(StatCard, {
                       label: 'Pending requests',
                       value: access.pending_requests,
@@ -4109,6 +4345,11 @@ function AdminConsole({ context }) {
                       label: 'Approved',
                       value: access.approved_requests,
                       color: 'blue.6'
+                  }),
+                  h(StatCard, {
+                      label: 'Partially approved',
+                      value: access.partially_approved_requests,
+                      color: 'orange.6'
                   }),
                   h(StatCard, {
                       label: 'Ready for pickup',

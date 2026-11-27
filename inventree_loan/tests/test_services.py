@@ -67,7 +67,34 @@ class LoanCheckoutServiceTests(InvenTreeTestCase):
             part=self.part,
             stock_item=self.stock_item,
             quantity=Decimal("2"),
+            approved_quantity=Decimal("2"),
         )
+
+    @patch("inventree_loan.services.requests._loan_location")
+    @patch("inventree_loan.services.checkout.get_loan_location")
+    @patch("inventree_loan.services.checkout.get_on_loan_status_key")
+    def test_checkout_with_unapproved_line_is_partially_fulfilled(
+        self, status_key, checkout_location, request_location
+    ):
+        status_key.return_value = StockStatus.QUARANTINED.value
+        checkout_location.return_value = self.loan_location
+        request_location.return_value = self.loan_location
+
+        extra_part = Part.objects.create(
+            name="Unapproved Loan Part", category=self.category
+        )
+        LoanRequestLine.objects.create(
+            request=self.request,
+            part=extra_part,
+            quantity=Decimal("1"),
+            approved_quantity=Decimal("0"),
+        )
+
+        loan = checkout_request(self.request, self.desk_user, signature=TEST_SIGNATURE)
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.status, LoanRequestStatus.PARTIALLY_FULFILLED)
+        self.assertEqual(loan.items.count(), 1)
+        self.assertEqual(loan.items.get().part, self.part)
 
     @patch("inventree_loan.services.requests._loan_location")
     @patch("inventree_loan.services.checkout.get_loan_location")
@@ -158,6 +185,7 @@ class LoanCheckoutServiceTests(InvenTreeTestCase):
 
         line = self.request.lines.get()
         line.quantity = Decimal("10")
+        line.approved_quantity = Decimal("10")
         line.save()
 
         with self.assertRaises(ValidationError):
@@ -201,6 +229,7 @@ class LoanCheckoutServiceTests(InvenTreeTestCase):
             part=part,
             stock_item=serial_item,
             quantity=Decimal("1"),
+            approved_quantity=Decimal("1"),
         )
 
         loan = checkout_request(request, self.desk_user, signature=TEST_SIGNATURE)

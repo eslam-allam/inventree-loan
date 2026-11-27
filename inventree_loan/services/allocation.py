@@ -57,10 +57,27 @@ def allocation_data(request: LoanRequest) -> list[dict]:
 
 def _validate_line_allocations(line):
     allocated = _line_allocated_quantity(line)
-    if allocated > line.quantity:
+    if allocated > line.approved_quantity:
         raise ValidationError(
-            _("Allocated quantity cannot exceed the requested quantity")
+            _("Allocated quantity cannot exceed the approved quantity")
         )
+
+
+def _refresh_ready_status(request: LoanRequest) -> None:
+    """Move a ready request back when its allocations are no longer complete."""
+    if request.status != LoanRequestStatus.READY_FOR_PICKUP:
+        return
+    if request.is_fully_allocated:
+        return
+    fully_approved = all(
+        line.approved_quantity >= line.quantity for line in request.lines.all()
+    )
+    request.status = (
+        LoanRequestStatus.APPROVED
+        if fully_approved
+        else LoanRequestStatus.PARTIALLY_APPROVED
+    )
+    request.save(update_fields=["status", "updated"])
 
 
 @transaction.atomic
@@ -69,8 +86,8 @@ def auto_allocate_request(request: LoanRequest, actor) -> LoanRequest:
     _check_actor(actor)
     request = LoanRequest.objects.select_for_update().get(pk=request.pk)
     if request.status not in {
-        LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.PARTIALLY_APPROVED,
         LoanRequestStatus.READY_FOR_PICKUP,
         LoanRequestStatus.PARTIALLY_FULFILLED,
     }:
@@ -80,7 +97,9 @@ def auto_allocate_request(request: LoanRequest, actor) -> LoanRequest:
 
     used: dict[int, Decimal] = {}
     for line in request.lines.select_related("part", "stock_item"):
-        remaining = line.quantity
+        remaining = line.approved_quantity
+        if remaining <= 0:
+            continue
         if line.stock_item_id:
             candidates = [line.stock_item]
         else:
@@ -126,6 +145,7 @@ def auto_allocate_request(request: LoanRequest, actor) -> LoanRequest:
         actor=actor,
         notes="Automatic stock allocation",
     )
+    _refresh_ready_status(request)
     return request
 
 
@@ -142,8 +162,8 @@ def add_allocation(
     _check_actor(actor)
     request = LoanRequest.objects.select_for_update().get(pk=request.pk)
     if request.status not in {
-        LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.PARTIALLY_APPROVED,
         LoanRequestStatus.READY_FOR_PICKUP,
         LoanRequestStatus.PARTIALLY_FULFILLED,
     }:
@@ -152,6 +172,10 @@ def add_allocation(
     line = request.lines.filter(pk=line_id).select_related("part").first()
     if line is None:
         raise ValidationError({"line_id": _("The request line does not exist")})
+    if line.approved_quantity <= 0:
+        raise ValidationError(
+            {"line_id": _("This request line has not been approved")}
+        )
 
     from stock.models import StockItem
 
@@ -205,9 +229,9 @@ def add_allocation(
     allocated = _line_allocated_quantity(line) - (
         existing.quantity if existing else Decimal(0)
     )
-    if allocated + quantity > line.quantity:
+    if allocated + quantity > line.approved_quantity:
         raise ValidationError(
-            {"quantity": _("Allocated quantity cannot exceed the requested quantity")}
+            {"quantity": _("Allocated quantity cannot exceed the approved quantity")}
         )
 
     if existing:
@@ -234,6 +258,7 @@ def remove_allocation(request: LoanRequest, actor, allocation_id: int) -> None:
     if request.status not in {
         LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.PARTIALLY_APPROVED,
         LoanRequestStatus.READY_FOR_PICKUP,
         LoanRequestStatus.PARTIALLY_FULFILLED,
     }:
@@ -244,6 +269,7 @@ def remove_allocation(request: LoanRequest, actor, allocation_id: int) -> None:
     if allocation is None:
         raise ValidationError(_("The allocation does not exist"))
     allocation.delete()
+    _refresh_ready_status(request)
 
 
 @transaction.atomic
@@ -254,8 +280,10 @@ def clear_allocations(request: LoanRequest, actor) -> None:
     if request.status not in {
         LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.PARTIALLY_APPROVED,
         LoanRequestStatus.READY_FOR_PICKUP,
         LoanRequestStatus.PARTIALLY_FULFILLED,
     }:
         raise ValidationError(_("This request can no longer be allocated"))
     LoanRequestAllocation.objects.filter(line__request=request).delete()
+    _refresh_ready_status(request)

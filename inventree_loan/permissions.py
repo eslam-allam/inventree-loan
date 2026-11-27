@@ -115,12 +115,14 @@ def can_cancel_request(user, request) -> bool:
         return request.status in {
             LoanRequestStatus.PENDING,
             LoanRequestStatus.APPROVED,
+            LoanRequestStatus.PARTIALLY_APPROVED,
             LoanRequestStatus.READY_FOR_PICKUP,
             LoanRequestStatus.PARTIALLY_FULFILLED,
         }
     return request.requester_id == user.id and request.status in {
         LoanRequestStatus.PENDING,
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.PARTIALLY_APPROVED,
         LoanRequestStatus.READY_FOR_PICKUP,
     }
 

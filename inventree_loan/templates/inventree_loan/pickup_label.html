@@ -36,8 +36,9 @@
 
     <section class="loan-pickup-meta">
         <div>
-            <span>{% trans "Items" %}</span>
-            <strong>{{ request_obj.item_count }} line{{ request_obj.item_count|pluralize }} · {{ request_obj.total_quantity|floatformat:"-5" }} unit{{ request_obj.total_quantity|pluralize }}</strong>
+            <span>{% trans "Allocated" %}</span>
+            <strong>{{ allocated_total|floatformat:"-5" }} of {{ requested_total|floatformat:"-5" }} unit{{ requested_total|pluralize }}</strong>
+            {% if is_partial %}<span class="loan-badge loan-badge-warning">{% trans "Partial allocation" %}</span>{% endif %}
         </div>
         <div>
             <span>{% trans "Pickup date" %}</span>
@@ -51,11 +52,15 @@
 
     <section class="loan-pickup-contents">
         <h2>{% trans "Contents" %}</h2>
+        {% if allocated_rows %}
         <ul>
-            {% for line in request_obj.lines.all %}
-                <li><span>{{ line.part.name }}</span><strong>× {{ line.quantity|floatformat:"-5" }}</strong></li>
+            {% for row in allocated_rows %}
+                <li><span>{{ row.part_name }}{% if row.ipn %} · {{ row.ipn }}{% endif %}</span><strong>× {{ row.quantity|floatformat:"-5" }}</strong></li>
             {% endfor %}
         </ul>
+        {% else %}
+        <p class="loan-muted">{% trans "No stock allocated yet." %}</p>
+        {% endif %}
     </section>
 
     <footer class="loan-pickup-label-foot">

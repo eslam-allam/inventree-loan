@@ -142,6 +142,21 @@ class DecisionSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class ApprovalLineSerializer(serializers.Serializer):
+    """Approved quantity for one request line."""
+
+    line_id = serializers.IntegerField()
+    quantity = serializers.DecimalField(
+        max_digits=15, decimal_places=5, min_value=0
+    )
+
+
+class ApproveSerializer(DecisionSerializer):
+    """Approve some or all request quantities."""
+
+    lines = ApprovalLineSerializer(many=True, required=False, allow_empty=True)
+
+
 class ReadyForPickupSerializer(serializers.Serializer):
     """Pack a request into a pickup box and mark it ready."""
 

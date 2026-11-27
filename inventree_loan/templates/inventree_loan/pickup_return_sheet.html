@@ -70,6 +70,17 @@
         </tbody>
     </table>
 
+    {% if unallocated_rows %}
+    <section class="loan-return-sheet-warning">
+        <strong>{% trans "Not included in this box" %}</strong>
+        <ul>
+            {% for row in unallocated_rows %}
+                <li>{{ row.part_name }}{% if row.ipn %} · {{ row.ipn }}{% endif %} — {{ row.quantity|floatformat:"-5" }} unit{{ row.quantity|pluralize }} not allocated</li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
     <footer class="loan-return-sheet-foot">
         <span>{{ pickup.reference }} · {{ request_obj.reference }}</span>
         <span>{% trans "Scan item QRs into the return counter." %}</span>

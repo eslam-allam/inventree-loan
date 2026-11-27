@@ -42,13 +42,14 @@
     <section>
         <h2>{% trans "Requested items" %}</h2>
         <table class="loan-table">
-            <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Quantity" %}</th></tr></thead>
+            <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Requested" %}</th><th scope="col">{% trans "Approved" %}</th></tr></thead>
             <tbody>
             {% for line in request_obj.lines.all %}
                 <tr>
                     <td>{{ line.part.name }}{% if line.part.IPN %}<br><span class="loan-muted">{{ line.part.IPN }}</span>{% endif %}</td>
                     <td>{% if line.stock_item %}{{ line.stock_item }}{% else %}{% trans "Assigned by loan desk" %}{% endif %}</td>
                     <td>{{ line.quantity|floatformat:"-5" }}</td>
+                    <td>{% if line.approved_quantity %}{{ line.approved_quantity|floatformat:"-5" }}{% else %}—{% endif %}</td>
                 </tr>
             {% endfor %}
             </tbody>

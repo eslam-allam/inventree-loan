@@ -64,6 +64,7 @@ class LoanAllocationTests(InvenTreeTestCase):
             request=self.request,
             part=self.part,
             quantity=Decimal("2"),
+            approved_quantity=Decimal("2"),
         )
 
     @patch("inventree_loan.services.checkout.get_loan_location")
@@ -133,7 +134,10 @@ class LoanAllocationTests(InvenTreeTestCase):
             status=StockStatus.OK.value,
         )
         line = LoanRequestLine.objects.create(
-            request=self.request, part=serial_part, quantity=Decimal("1")
+            request=self.request,
+            part=serial_part,
+            quantity=Decimal("1"),
+            approved_quantity=Decimal("1"),
         )
         auto_allocate_request(self.request, self.desk_user)
         allocation = line.allocations.get()
@@ -180,7 +184,10 @@ class LoanAllocationTests(InvenTreeTestCase):
             responsibility_ack=True,
         )
         line = LoanRequestLine.objects.create(
-            request=request, part=template, quantity=Decimal("2")
+            request=request,
+            part=template,
+            quantity=Decimal("2"),
+            approved_quantity=Decimal("2"),
         )
         auto_allocate_request(request, self.desk_user)
         allocation = line.allocations.get()

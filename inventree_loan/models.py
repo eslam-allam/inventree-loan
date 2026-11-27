@@ -20,6 +20,7 @@ class LoanRequestStatus(models.TextChoices):
 
     PENDING = "pending", _("Pending approval")
     APPROVED = "approved", _("Approved")
+    PARTIALLY_APPROVED = "partially_approved", _("Partially approved")
     READY_FOR_PICKUP = "ready_for_pickup", _("Ready for pickup")
     REJECTED = "rejected", _("Rejected")
     CANCELLED = "cancelled", _("Cancelled")
@@ -207,6 +208,7 @@ class LoanRequest(LoanBaseModel):
         return self.status in {
             LoanRequestStatus.PENDING,
             LoanRequestStatus.APPROVED,
+            LoanRequestStatus.PARTIALLY_APPROVED,
             LoanRequestStatus.READY_FOR_PICKUP,
             LoanRequestStatus.PARTIALLY_FULFILLED,
         }
@@ -228,8 +230,14 @@ class LoanRequest(LoanBaseModel):
         return total or Decimal(0)
 
     @property
+    def approved_total_quantity(self) -> Decimal:
+        """Total approved quantity across all lines."""
+        total = self.lines.aggregate(total=models.Sum("approved_quantity"))["total"]
+        return total or Decimal(0)
+
+    @property
     def is_fully_allocated(self) -> bool:
-        """Return True when every line has stock allocated."""
+        """Return True when every approved quantity has stock allocated."""
         return all(line.is_fully_allocated for line in self.lines.all())
 
     @property
@@ -451,6 +459,12 @@ class LoanRequestLine(models.Model):
         default=Decimal("1"),
         verbose_name=_("Quantity"),
     )
+    approved_quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=5,
+        default=Decimal("0"),
+        verbose_name=_("Approved quantity"),
+    )
     notes = models.TextField(blank=True, verbose_name=_("Line notes"))
 
     class Meta:
@@ -468,14 +482,19 @@ class LoanRequestLine(models.Model):
         return total or Decimal(0)
 
     @property
+    def is_approved(self) -> bool:
+        """Return True when any quantity on this line has been approved."""
+        return self.approved_quantity > 0
+
+    @property
     def unallocated_quantity(self) -> Decimal:
-        """Quantity on this line which still needs stock allocated."""
-        return max(self.quantity - self.allocated_quantity, Decimal(0))
+        """Approved quantity on this line which still needs stock allocated."""
+        return max(self.approved_quantity - self.allocated_quantity, Decimal(0))
 
     @property
     def is_fully_allocated(self) -> bool:
-        """Return True when the line has enough allocated stock."""
-        return self.allocated_quantity >= self.quantity
+        """Return True when all approved stock for this line is allocated."""
+        return self.allocated_quantity >= self.approved_quantity
 
     def clean(self):
         """Validate line data."""

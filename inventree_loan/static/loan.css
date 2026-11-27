@@ -629,6 +629,10 @@ body.loan-body {
 .loan-return-checkbox { display: inline-block; width: 18px; height: 18px; border: 1.5px solid #94a3b8; border-radius: 3px; }
 .loan-return-sheet-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 10px; border-top: 1px solid #cbd5e1; color: #64748b; font-family: var(--loan-mono); font-size: 10px; }
 
+.loan-return-sheet-warning { margin-top: 18px; padding: 12px 14px; border: 1px solid #f59e0b; border-radius: 7px; background: #fffbeb; color: #92400e; font-size: 12px; }
+.loan-return-sheet-warning strong { display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+.loan-return-sheet-warning ul { margin: 0; padding-left: 18px; }
+
 @media print {
     .loan-pickup-label { max-width: none; width: 100%; margin: 0; padding: 0; border: 0; box-shadow: none; }
     .loan-pickup-qr { width: 44mm; height: 44mm; flex-basis: 44mm; }

@@ -47,15 +47,18 @@ def mark_ready_for_pickup(
     )
     if request.status not in {
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.PARTIALLY_APPROVED,
         LoanRequestStatus.READY_FOR_PICKUP,
     }:
-        raise ValidationError(_("Only approved requests can be marked ready"))
+        raise ValidationError(
+            _("Only approved or partially approved requests can be marked ready")
+        )
     if not request.lines.exists():
         raise ValidationError(_("This request has no items"))
     if not request.is_fully_allocated:
         raise ValidationError(
             _(
-                "All requested items must be allocated before the request can be ready for pickup"
+                "All approved items must be allocated before the request can be ready for pickup"
             )
         )
 

@@ -96,6 +96,7 @@ from ..services.setup import (
     is_configured,
 )
 from .serializers import (
+    ApproveSerializer,
     CheckoutSerializer,
     CustomFieldSerializer,
     DecisionSerializer,
@@ -131,6 +132,7 @@ def _web_url(path: str) -> str:
 REQUEST_OPEN_STATUSES = [
     "pending",
     "approved",
+    "partially_approved",
     "ready_for_pickup",
     "partially_fulfilled",
 ]
@@ -205,7 +207,11 @@ def _request_list_queryset(user):
     line_totals = (
         LoanRequestLine.objects.filter(request=OuterRef("pk"))
         .values("request")
-        .annotate(total=Sum("quantity"), count=Count("pk"))
+        .annotate(
+            total=Sum("quantity"),
+            approved=Sum("approved_quantity"),
+            count=Count("pk"),
+        )
     )
     allocated_totals = (
         LoanRequestAllocation.objects.filter(line__request=OuterRef("pk"))
@@ -218,6 +224,11 @@ def _request_list_queryset(user):
         ),
         total_quantity_annotated=Coalesce(
             Subquery(line_totals.values("total")[:1]),
+            Value(Decimal("0")),
+            output_field=DecimalField(max_digits=15, decimal_places=5),
+        ),
+        approved_quantity_annotated=Coalesce(
+            Subquery(line_totals.values("approved")[:1]),
             Value(Decimal("0")),
             output_field=DecimalField(max_digits=15, decimal_places=5),
         ),
@@ -295,6 +306,10 @@ def _request_summary_data(
     total_quantity = (
         getattr(loan_request, "total_quantity_annotated", Decimal("0")) or Decimal("0")
     )
+    approved_quantity = (
+        getattr(loan_request, "approved_quantity_annotated", Decimal("0"))
+        or Decimal("0")
+    )
     allocated_quantity = (
         getattr(loan_request, "allocated_quantity_annotated", Decimal("0"))
         or Decimal("0")
@@ -329,23 +344,27 @@ def _request_summary_data(
         "decided_at": _iso(loan_request.decided_at),
         "item_count": item_count,
         "total_quantity": _num(total_quantity),
+        "approved_quantity": _num(approved_quantity),
         "allocated_quantity": _num(allocated_quantity),
-        "is_fully_allocated": total_quantity > 0
-        and allocated_quantity >= total_quantity,
+        "is_fully_approved": total_quantity > 0
+        and approved_quantity >= total_quantity,
+        "is_fully_allocated": approved_quantity > 0
+        and allocated_quantity >= approved_quantity,
         "loan_pk": loan.pk if loan else None,
         "loan_reference": loan.reference if loan else "",
         "loan_status": loan.status if loan else "",
         "loan_status_display": loan.get_status_display() if loan else "",
         "loan_returned_at": _iso(loan.returned_at) if loan else None,
         "pickup": _pickup_data(getattr(loan_request, "pickup", None)),
-        "can_approve": approve and status == "pending",
+        "can_approve": approve
+        and status in {"pending", "partially_approved"},
         "can_handout": handout,
         "can_mark_ready": approve
-        and status in {"approved", "ready_for_pickup"},
+        and status in {"approved", "partially_approved", "ready_for_pickup"},
         "can_cancel": status in REQUEST_OPEN_STATUSES,
         "can_checkout": handout
         and (
-            status in {"approved", "ready_for_pickup"}
+            status in {"approved", "partially_approved", "ready_for_pickup"}
             or (status == "pending" and not require_approval)
         ),
     }
@@ -582,6 +601,9 @@ def _request_data(request: LoanRequest, user) -> dict:
     approve = can_approve(user)
     handout = can_handout(user)
     total_quantity = sum((line.quantity for line in lines), Decimal("0"))
+    approved_quantity = sum(
+        (line.approved_quantity for line in lines), Decimal("0")
+    )
     allocated_by_line = {
         line.pk: sum(
             (allocation.quantity for allocation in line.allocations.all()),
@@ -617,8 +639,13 @@ def _request_data(request: LoanRequest, user) -> dict:
         "created": _iso(request.created),
         "item_count": len(lines),
         "total_quantity": _num(total_quantity),
+        "approved_quantity": _num(approved_quantity),
+        "is_fully_approved": all(
+            line.approved_quantity >= line.quantity for line in lines
+        ),
         "is_fully_allocated": all(
-            allocated_by_line.get(line.pk, Decimal("0")) >= line.quantity
+            allocated_by_line.get(line.pk, Decimal("0"))
+            >= line.approved_quantity
             for line in lines
         ),
         "loan_pk": loan.pk if loan else None,
@@ -627,15 +654,24 @@ def _request_data(request: LoanRequest, user) -> dict:
         "loan_status_display": loan.get_status_display() if loan else "",
         "loan_returned_at": _iso(loan.returned_at) if loan else None,
         "pickup": _pickup_data(getattr(request, "pickup", None)),
-        "can_approve": approve and request.status == "pending",
+        "can_approve": approve
+        and request.status in {"pending", "partially_approved"},
         "can_handout": handout,
         "can_mark_ready": approve
-        and request.status in {"approved", "ready_for_pickup"},
+        and request.status
+        in {"approved", "partially_approved", "ready_for_pickup"},
         "can_cancel": request.status
-        in {"pending", "approved", "ready_for_pickup", "partially_fulfilled"},
+        in {
+            "pending",
+            "approved",
+            "partially_approved",
+            "ready_for_pickup",
+            "partially_fulfilled",
+        },
         "can_checkout": handout
         and (
-            request.status in {"approved", "ready_for_pickup"}
+            request.status
+            in {"approved", "partially_approved", "ready_for_pickup"}
             or (request.status == "pending" and not get_setting("REQUIRE_APPROVAL", True))
         ),
         "lines": [
@@ -653,6 +689,7 @@ def _request_data(request: LoanRequest, user) -> dict:
                     else ""
                 ),
                 "quantity": _num(line.quantity),
+                "approved_quantity": _num(line.approved_quantity),
                 "notes": line.notes,
                 "allocations": _allocation_data(line),
                 "allocated_quantity": _num(
@@ -660,14 +697,15 @@ def _request_data(request: LoanRequest, user) -> dict:
                 ),
                 "unallocated_quantity": _num(
                     max(
-                        line.quantity - allocated_by_line.get(line.pk, Decimal("0")),
+                        line.approved_quantity
+                        - allocated_by_line.get(line.pk, Decimal("0")),
                         Decimal("0"),
                     )
                 ),
                 "is_fully_allocated": allocated_by_line.get(
                     line.pk, Decimal("0")
                 )
-                >= line.quantity,
+                >= line.approved_quantity,
                 "available_stock": _num(
                     availability.get(line.part_id, {}).get(
                         "available", Decimal("0")
@@ -782,6 +820,7 @@ def _public_request_data(loan_request: LoanRequest) -> dict:
                 "ipn": line.part.IPN or "",
                 "stock_item_label": str(line.stock_item) if line.stock_item else "",
                 "quantity": _num(line.quantity),
+                "approved_quantity": _num(line.approved_quantity),
                 "notes": line.notes,
             }
             for line in loan_request.lines.all()
@@ -1124,16 +1163,31 @@ class RequestDecisionView(LoanAPIView):
     """Approve or reject a request."""
 
     action = "approve"
+    serializer_class = DecisionSerializer
 
     def post(self, request, pk):
         loan_request = get_object_or_404(visible_requests(request.user), pk=pk)
-        serializer = DecisionSerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         try:
             if self.action == "approve":
-                loan_request = approve_request(loan_request, request.user, serializer.validated_data["notes"])
+                approvals = None
+                if "lines" in data:
+                    approvals = {
+                        entry["line_id"]: entry["quantity"]
+                        for entry in data["lines"]
+                    }
+                loan_request = approve_request(
+                    loan_request,
+                    request.user,
+                    data.get("notes", ""),
+                    approvals=approvals,
+                )
             else:
-                loan_request = reject_request(loan_request, request.user, serializer.validated_data["notes"])
+                loan_request = reject_request(
+                    loan_request, request.user, data.get("notes", "")
+                )
         except DjangoValidationError as exc:
             raise ValidationError(_drf_error(exc)) from None
         return Response(_request_data(loan_request, request.user))
@@ -1141,10 +1195,12 @@ class RequestDecisionView(LoanAPIView):
 
 class RequestApproveView(RequestDecisionView):
     action = "approve"
+    serializer_class = ApproveSerializer
 
 
 class RequestRejectView(RequestDecisionView):
     action = "reject"
+    serializer_class = DecisionSerializer
 
 
 class RequestCancelView(LoanAPIView):
@@ -1477,6 +1533,9 @@ class StatsView(LoanAPIView):
         return Response({
             "pending_requests": visible_requests_qs.filter(status="pending").count(),
             "approved_requests": visible_requests_qs.filter(status="approved").count(),
+            "partially_approved_requests": visible_requests_qs.filter(
+                status="partially_approved"
+            ).count(),
             "ready_for_pickup_requests": visible_requests_qs.filter(
                 status="ready_for_pickup"
             ).count(),

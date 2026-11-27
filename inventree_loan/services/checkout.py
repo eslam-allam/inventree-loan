@@ -103,7 +103,7 @@ def _allocate_line(
     """Allocate one request line to one or more physical stock items."""
     from stock.models import StockItem
 
-    wanted = line.quantity
+    wanted = line.approved_quantity
     allocations: list[tuple] = []
 
     planned = list(
@@ -116,7 +116,7 @@ def _allocate_line(
         if planned_total != wanted:
             raise ValidationError(
                 _(
-                    "The allocated quantity for %(part)s does not match the requested quantity"
+                    "The allocated quantity for %(part)s does not match the approved quantity"
                 )
                 % {"part": line.part}
             )
@@ -226,16 +226,21 @@ def checkout_request(
             raise ValidationError(_("This request has not been approved yet"))
     elif request.status not in {
         LoanRequestStatus.APPROVED,
+        LoanRequestStatus.PARTIALLY_APPROVED,
         LoanRequestStatus.READY_FOR_PICKUP,
     }:
         raise ValidationError(
-            _("Only pending, approved or ready-for-pickup requests can be issued")
+            _(
+                "Only pending, approved, partially approved or ready-for-pickup requests can be issued"
+            )
         )
 
     if request.requester_id and not request.requester.is_active:
         raise ValidationError(_("The requester's account is inactive"))
     if not request.lines.exists():
         raise ValidationError(_("This request has no items"))
+    if not any(line.approved_quantity > 0 for line in request.lines.all()):
+        raise ValidationError(_("This request has no approved items"))
 
     if request.requester_id:
         _check_active_loan_limit(request.requester)
@@ -277,16 +282,18 @@ def checkout_request(
     lines = list(request.lines.all())
     planned: dict[int, Decimal] = {}
     for line in lines:
+        if line.approved_quantity <= 0:
+            continue
         allocations = list(line.allocations.all())
         if not allocations:
             continue
         allocated = sum(
             (allocation.quantity for allocation in allocations), Decimal(0)
         )
-        if allocated != line.quantity:
+        if allocated != line.approved_quantity:
             raise ValidationError(
                 _(
-                    "The allocated quantity for %(part)s does not match the requested quantity"
+                    "The allocated quantity for %(part)s does not match the approved quantity"
                 )
                 % {"part": line.part}
             )
@@ -319,7 +326,7 @@ def checkout_request(
         )
 
     for line in lines:
-        if line.allocations.exists():
+        if line.approved_quantity <= 0 or line.allocations.exists():
             continue
         issued_items.extend(
             _allocate_line(
@@ -333,7 +340,11 @@ def checkout_request(
 
     LoanRequestAllocation.objects.filter(line__request=request).delete()
 
-    request.status = LoanRequestStatus.FULFILLED
+    request.status = (
+        LoanRequestStatus.FULFILLED
+        if all(line.approved_quantity >= line.quantity for line in lines)
+        else LoanRequestStatus.PARTIALLY_FULFILLED
+    )
     if request.decided_by_id is None:
         request.decided_by = actor
         request.decided_at = timezone.now()

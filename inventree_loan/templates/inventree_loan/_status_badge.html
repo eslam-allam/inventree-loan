@@ -1,5 +1,7 @@
 {% if status == 'pending' %}
     <span class="loan-badge loan-badge-pending"><i class="fas fa-clock" aria-hidden="true"></i> {{ label|default:status }}</span>
+{% elif status == 'partially_approved' %}
+    <span class="loan-badge loan-badge-warning"><i class="fas fa-circle-half-stroke" aria-hidden="true"></i> {{ label|default:status }}</span>
 {% elif status == 'ready_for_pickup' %}
     <span class="loan-badge loan-badge-info"><i class="fas fa-circle-check" aria-hidden="true"></i> {{ label|default:status }}</span>
 {% elif status == 'approved' %}

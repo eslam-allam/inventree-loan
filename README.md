@@ -14,7 +14,9 @@ a role-aware interface for requesters and loan desk staff.
   is required. Additional questions can be added with the custom field builder.
 - Requesters sign at submission. The loan desk captures a second signature at
   handout, and a third at return.
-- Approvers can review, approve, and reject requests.
+- Approvers can approve individual lines and quantities, leave lines unapproved,
+  and approve more later until the request is fully approved. Allocation is
+  limited to approved quantities.
 - Approved requests can be packed into a **pickup box or bag** with its own
   reference and QR code, then moved to **Ready for pickup**. The box label is
   printable and shows the box reference, request reference, requester, contents
@@ -54,9 +56,9 @@ a role-aware interface for requesters and loan desk staff.
   checkbox and dropdown types, required/optional state, help text and ordering.
   Values appear on the request page, printable receipt, public tracking page and
   CSV export.
-- Optional email notifications for submitted, approved/rejected, ready for
-  pickup, handout, partial return and returned events; in-app notifications are
-  always available.
+- Optional email notifications for submitted, partial/full approval, rejection,
+  cancellation, ready for pickup, handout, partial return and returned events;
+  in-app notifications are always available for signed-in users.
 - Scheduled due-soon and overdue reminders.
 - CSV export for requests and loans.
 - Responsive, accessible interface with light and dark mode support.
@@ -262,16 +264,17 @@ also need the normal InvenTree stock change role.
 
 ### Allocate stock
 
-Before approval or handout, staff can plan which physical stock items will be
+After approving quantities, staff can plan which physical stock items will be
 used:
 
 1. Open the request detail page and select **Auto allocate**.
-2. Review the allocated stock sub-rows. Each row links to the stock item and
+2. Only approved quantities are allocated. Unapproved lines are ignored.
+3. Review the allocated stock sub-rows. Each row links to the stock item and
    shows its location and quantity.
-3. Use **Allocate** on a line to add a specific stock item manually, or scan
+4. Use **Allocate** on a line to add a specific stock item manually, or scan
    the stock item's barcode/QR in the allocation dialog. Use **Remove** to
    release an allocation.
-4. Use **Clear allocations** to start again.
+5. Use **Clear allocations** to start again.
 
 Allocations are plans, not stock movements. They reduce the reported public
 availability, and checkout revalidates them before moving stock. Non-trackable
@@ -281,25 +284,38 @@ part page, and each allocation links to its stock item page.
 
 ### Approve or reject
 
-Approvers open the Loan Manager console or the request detail page. The detail
-view shows the requester, contact details, purpose, dates, items, signature and
-stock allocations. **Approve** or **Reject**, optionally adding a decision
-note. Anonymous requesters receive the decision at the email address they
-provided, and can follow the request through their tracking link.
+Approvers open the Loan Manager console or the request detail page. The approval
+dialog lists every requested line with its requested and allocated quantities
+and an approved-quantity input.
+
+- Set a line to `0` to leave it unapproved.
+- Approve a partial quantity of a line.
+- Use **Approve all requested** for a full approval.
+- At least one line must have a non-zero approved quantity.
+- Once allocations exist on a line, its approved quantity can only be increased.
+  Remove allocations first to reduce it.
+- Further approvals can increase quantities until the request is fully approved.
+- Requests with some approved and some unapproved quantities use the
+  **Partially approved** status.
+- Reject the whole request when needed.
+
+Anonymous requesters receive approval, partial approval and rejection updates at
+the email address they provided, and can follow the request through their
+tracking link.
 
 ### Pack and mark ready for pickup
 
-1. Open an approved request. A pickup box reference is created automatically
-   when the request is approved.
-2. Allocate all requested stock. The ready action is disabled while any line is
-   still unallocated.
+1. Open an approved or partially approved request. A pickup box reference is
+   created automatically when the first quantities are approved.
+2. Allocate all approved stock. The ready action is disabled while any approved
+   quantity is still unallocated. Unapproved lines do not block readiness.
 3. Select **Mark ready for pickup**, optionally enter a box/bag name (for
    example `Shelf A – blue box`) and packing notes.
 4. The request moves to **Ready for pickup** and the requester receives an
    in-app notification and email when email is enabled.
 5. Select **Print box label** to print an A6 label with the box QR, box
-   reference, request reference, requester, contents and pickup date. Attach it
-   to the box or bag.
+   reference, request reference, requester, allocated contents and pickup date.
+   Only allocated quantities are printed; partial boxes are marked as such.
 
 The box reference and name are shown on the request page. The pickup box is
 marked **Collected** automatically when the request is handed out.
@@ -320,10 +336,11 @@ item QRs count the outstanding quantity for that stock item.
 5. Print the **handout receipt** or show the loan QR. The receipt QR code opens
    the request tracking/detail page.
 
-The service selects available stock items, moves or splits the requested quantities
-to the On Loan location, applies the On Loan status, and records the original
-location and status. The handout signature is stored on the loan and shown on the
-requester's tracking page and the printed receipt.
+The service selects available stock items, moves or splits the approved
+quantities to the On Loan location, applies the On Loan status, and records the
+original location and status. If some requested quantities were never approved,
+the request ends as **Partially fulfilled**. The handout signature is stored on
+the loan and shown on the requester's tracking page and the printed receipt.
 
 ### Return
 

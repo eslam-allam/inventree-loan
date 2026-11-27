@@ -32,13 +32,14 @@
             </div>
             <div class="loan-table-wrap">
                 <table class="loan-table">
-                    <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Qty" %}</th><th scope="col">{% trans "Notes" %}</th></tr></thead>
+                    <thead><tr><th scope="col">{% trans "Part" %}</th><th scope="col">{% trans "Asset" %}</th><th scope="col">{% trans "Requested" %}</th><th scope="col">{% trans "Approved" %}</th><th scope="col">{% trans "Notes" %}</th></tr></thead>
                     <tbody>
                     {% for line in request_obj.lines.all %}
                         <tr>
                             <td><strong>{{ line.part.name }}</strong>{% if line.part.IPN %}<div class="loan-muted">{{ line.part.IPN }}</div>{% endif %}</td>
                             <td>{% if line.stock_item %}{{ line.stock_item }}{% else %}<span class="loan-muted">{% trans "Any available" %}</span>{% endif %}</td>
                             <td>{{ line.quantity|floatformat:"-5" }}</td>
+                            <td>{% if line.approved_quantity %}{{ line.approved_quantity|floatformat:"-5" }}{% else %}<span class="loan-muted">—</span>{% endif %}</td>
                             <td class="loan-muted">{{ line.notes|default:"—" }}</td>
                         </tr>
                     {% endfor %}

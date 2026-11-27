@@ -129,9 +129,45 @@ def notify_request_submitted(request):
 
 
 def notify_request_decided(request):
-    """Notify the requester about an approval or rejection."""
+    """Notify the requester about an approval, partial approval or rejection."""
+    from ..models import LoanRequestStatus
+
     name = f"Loan request {request.reference} {request.get_status_display().lower()}"
-    message = request.decision_notes or f"Your request is now {request.get_status_display()}."
+    parts = [
+        request.decision_notes
+        or f"Your request is now {request.get_status_display()}."
+    ]
+    if request.status in {
+        LoanRequestStatus.APPROVED,
+        LoanRequestStatus.PARTIALLY_APPROVED,
+    }:
+        lines = list(request.lines.select_related("part"))
+        approved = [
+            f"{line.part.name} x {line.approved_quantity}"
+            for line in lines
+            if line.approved_quantity > 0
+        ]
+        remaining = [
+            f"{line.part.name} x {line.quantity - line.approved_quantity}"
+            for line in lines
+            if line.approved_quantity < line.quantity
+        ]
+        if approved:
+            parts.append("Approved: " + ", ".join(approved) + ".")
+        if remaining:
+            parts.append("Still awaiting approval: " + ", ".join(remaining) + ".")
+    message = " ".join(parts)
+    link = request_link(request)
+    notify_user(request.requester, name, message, target=request, link=link)
+    send_email_address(
+        request.requester_email_display, name, f"{message}\n\n{link}"
+    )
+
+
+def notify_request_cancelled(request):
+    """Notify the requester that a request was cancelled."""
+    name = f"Loan request {request.reference} cancelled"
+    message = request.decision_notes or "Your loan request was cancelled."
     link = request_link(request)
     notify_user(request.requester, name, message, target=request, link=link)
     send_email_address(
@@ -159,8 +195,12 @@ def notify_request_ready(request, pickup=None):
 
 def notify_loan_issued(loan):
     """Notify the borrower that items have been handed out."""
+    from ..models import LoanRequestStatus
+
     name = f"Loan {loan.reference} issued"
     message = f"{loan.item_count} item(s) due {loan.due_at:%Y-%m-%d}."
+    if loan.request_id and loan.request.status == LoanRequestStatus.PARTIALLY_FULFILLED:
+        message += " Some requested items were not approved or issued."
     link = loan_link(loan)
     notify_user(loan.borrower, name, message, target=loan, link=link)
     send_email_address(loan.borrower_email_display, name, f"{message}\n\n{link}")

@@ -204,6 +204,92 @@ class LoanAPIPermissionTests(InvenTreeAPITestCase):
         self.assertEqual(request_scan["type"], "request")
         self.assertEqual(request_scan["data"]["pk"], self.request.pk)
 
+    def test_partial_approval_controls_allocation_and_label(self):
+        line = self.request.lines.get()
+        line.quantity = Decimal("3")
+        line.save(update_fields=["quantity"])
+
+        self.client.force_authenticate(user=self.approver)
+        with patch(
+            "inventree_loan.services.requests.notify_request_decided"
+        ) as notify_approval:
+            response = self.client.post(
+                f"/plugin/loan/api/requests/{self.request.pk}/approve/",
+                {
+                    "notes": "Partial approval",
+                    "lines": [{"line_id": line.pk, "quantity": 1}],
+                },
+                format="json",
+            )
+        self.assertTrue(notify_approval.called)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "partially_approved")
+        line.refresh_from_db()
+        self.assertEqual(line.approved_quantity, Decimal("1"))
+
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/allocate/",
+            {"auto": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        line.refresh_from_db()
+        self.assertEqual(line.allocated_quantity, Decimal("1"))
+
+        # Allocations exist, so the approved quantity cannot be reduced.
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/approve/",
+            {"lines": [{"line_id": line.pk, "quantity": 0}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/approve/",
+            {"lines": [{"line_id": line.pk, "quantity": 2}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/allocate/",
+            {"auto": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/ready/",
+            {"name": "Partial box"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "ready_for_pickup")
+
+        self.client.force_login(self.approver)
+        label = self.client.get(response.data["pickup"]["label_url"])
+        self.assertContains(label, "Partial allocation")
+        self.assertContains(label, "2 of 3")
+
+        response = self.client.post(
+            f"/plugin/loan/api/requests/{self.request.pk}/approve/",
+            {"lines": [{"line_id": line.pk, "quantity": 3}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_cancel_notifies_requester(self):
+        self.client.force_login(self.user)
+        with patch(
+            "inventree_loan.services.notifications.notify_request_cancelled"
+        ) as notify_cancelled:
+            response = self.client.post(
+                f"/plugin/loan/api/requests/{self.request.pk}/cancel/",
+                {"notes": "No longer needed"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(notify_cancelled.called)
+
     def test_anonymous_request_tracking_and_receipt(self):
         created = create_request(
             None,

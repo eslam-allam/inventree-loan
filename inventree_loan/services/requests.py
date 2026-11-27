@@ -77,6 +77,7 @@ def loan_allocated_quantity(stock_item, exclude_request=None) -> Decimal:
         line__request__status__in=[
             LoanRequestStatus.PENDING,
             LoanRequestStatus.APPROVED,
+            LoanRequestStatus.PARTIALLY_APPROVED,
             LoanRequestStatus.READY_FOR_PICKUP,
             LoanRequestStatus.PARTIALLY_FULFILLED,
         ],
@@ -158,6 +159,7 @@ def stock_item_available_bulk(items, exclude_request=None) -> dict[int, Decimal]
             line__request__status__in=[
                 LoanRequestStatus.PENDING,
                 LoanRequestStatus.APPROVED,
+                LoanRequestStatus.PARTIALLY_APPROVED,
                 LoanRequestStatus.READY_FOR_PICKUP,
                 LoanRequestStatus.PARTIALLY_FULFILLED,
             ],
@@ -761,32 +763,139 @@ def create_request(
 
 
 @transaction.atomic
-def approve_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
-    """Approve a pending request."""
+def approve_request(
+    request: LoanRequest,
+    actor,
+    notes: str = "",
+    approvals: dict[int, Decimal] | None = None,
+) -> LoanRequest:
+    """Approve or increase approved quantities for request lines."""
     from ..permissions import can_approve
 
     if not can_approve(actor):
         raise PermissionDenied("You do not have permission to approve requests")
 
-    request = LoanRequest.objects.select_for_update().get(pk=request.pk)
-    if request.status != LoanRequestStatus.PENDING:
-        raise ValidationError(_("Only pending requests can be approved"))
+    request = (
+        LoanRequest.objects.select_for_update()
+        .prefetch_related("lines__allocations", "lines__part")
+        .get(pk=request.pk)
+    )
+    if request.status not in {
+        LoanRequestStatus.PENDING,
+        LoanRequestStatus.PARTIALLY_APPROVED,
+    }:
+        raise ValidationError(
+            _("Only pending or partially approved requests can be approved")
+        )
 
-    request.status = LoanRequestStatus.APPROVED
-    request.decided_by = actor
-    request.decided_at = timezone.now()
+    lines = list(request.lines.all())
+    if not lines:
+        raise ValidationError(_("This request has no items"))
+
+    approval_map = {}
+    if approvals is not None:
+        for line_id, value in approvals.items():
+            try:
+                line_id = int(line_id)
+                quantity = Decimal(str(value))
+            except (InvalidOperation, TypeError, ValueError):
+                raise ValidationError(
+                    {"lines": _("Enter a valid approved quantity")}
+                ) from None
+            approval_map[line_id] = quantity
+
+    for line in lines:
+        if approvals is None:
+            target = line.quantity
+        elif line.pk in approval_map:
+            target = approval_map[line.pk]
+        else:
+            target = line.approved_quantity
+
+        if target < 0:
+            raise ValidationError(
+                {"lines": _("Approved quantity cannot be negative")}
+            )
+        if target > line.quantity:
+            raise ValidationError(
+                {
+                    "lines": _(
+                        "Approved quantity for %(part)s cannot exceed the requested quantity"
+                    )
+                    % {"part": line.part}
+                }
+            )
+
+        allocated = sum(
+            (allocation.quantity for allocation in line.allocations.all()),
+            Decimal(0),
+        )
+        if target < allocated:
+            raise ValidationError(
+                {
+                    "lines": _(
+                        "Approved quantity for %(part)s cannot be lower than the allocated quantity"
+                    )
+                    % {"part": line.part}
+                }
+            )
+        if target < line.approved_quantity and allocated > 0:
+            raise ValidationError(
+                {
+                    "lines": _(
+                        "Approved quantities can only be increased once allocations exist for %(part)s"
+                    )
+                    % {"part": line.part}
+                }
+            )
+
+        if target != line.approved_quantity:
+            line.approved_quantity = target
+            line.save(update_fields=["approved_quantity"])
+
+    lines = list(request.lines.select_related("part"))
+    if not any(line.approved_quantity > 0 for line in lines):
+        raise ValidationError(
+            _("Approve at least one item or quantity before approving the request")
+        )
+
+    fully_approved = all(
+        line.approved_quantity >= line.quantity for line in lines
+    )
+    request.status = (
+        LoanRequestStatus.APPROVED
+        if fully_approved
+        else LoanRequestStatus.PARTIALLY_APPROVED
+    )
+    if request.decided_by_id is None:
+        request.decided_by = actor
+        request.decided_at = timezone.now()
     request.decision_notes = (notes or "").strip()
-    request.save(update_fields=["status", "decided_by", "decided_at", "decision_notes", "updated"])
+    request.save(
+        update_fields=[
+            "status",
+            "decided_by",
+            "decided_at",
+            "decision_notes",
+            "updated",
+        ]
+    )
 
     from .pickups import ensure_pickup
 
     ensure_pickup(request, actor)
 
+    approved_text = ", ".join(
+        f"{line.part.name} x {line.approved_quantity}"
+        for line in lines
+        if line.approved_quantity > 0
+    )
     LoanEvent.record(
         request=request,
         event_type=LoanEventType.APPROVED,
         actor=actor,
-        notes=(notes or "").strip(),
+        notes=(notes or "").strip()
+        or f"Approved quantities: {approved_text}",
     )
     notify_request_decided(request)
     return request
@@ -801,8 +910,13 @@ def reject_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
         raise PermissionDenied("You do not have permission to reject requests")
 
     request = LoanRequest.objects.select_for_update().get(pk=request.pk)
-    if request.status != LoanRequestStatus.PENDING:
-        raise ValidationError(_("Only pending requests can be rejected"))
+    if request.status not in {
+        LoanRequestStatus.PENDING,
+        LoanRequestStatus.PARTIALLY_APPROVED,
+    }:
+        raise ValidationError(
+            _("Only pending or partially approved requests can be rejected")
+        )
 
     from ..models import LoanRequestAllocation
 
@@ -862,4 +976,7 @@ def cancel_request(request: LoanRequest, actor, notes: str = "") -> LoanRequest:
         actor=actor,
         notes=(notes or "").strip(),
     )
+    from .notifications import notify_request_cancelled
+
+    notify_request_cancelled(request)
     return request

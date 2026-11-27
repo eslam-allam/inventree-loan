@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from django.contrib.auth.decorators import login_required
@@ -259,12 +260,56 @@ def pickup_label(request, pk):
     )
     if not can_view_all(request.user):
         raise PermissionDenied("You cannot view this pickup box")
+
+    request_obj = pickup.request
+    loan = Loan.objects.filter(request=request_obj).first()
+    rows = []
+    allocated_total = Decimal(0)
+
+    if loan is not None:
+        by_part = {}
+        for item in loan.items.select_related("part"):
+            row = by_part.setdefault(
+                item.part_id,
+                {
+                    "part_name": item.part.name,
+                    "ipn": item.part.IPN or "",
+                    "quantity": Decimal(0),
+                },
+            )
+            row["quantity"] += item.quantity
+            allocated_total += item.quantity
+        rows = list(by_part.values())
+    else:
+        lines = request_obj.lines.select_related("part").prefetch_related(
+            "allocations"
+        )
+        for line in lines:
+            allocated = sum(
+                (allocation.quantity for allocation in line.allocations.all()),
+                Decimal(0),
+            )
+            allocated_total += allocated
+            if allocated > 0:
+                rows.append(
+                    {
+                        "part_name": line.part.name,
+                        "ipn": line.part.IPN or "",
+                        "quantity": allocated,
+                    }
+                )
+
+    requested_total = request_obj.total_quantity
     return render(
         request,
         "inventree_loan/pickup_label.html",
         {
             "pickup": pickup,
-            "request_obj": pickup.request,
+            "request_obj": request_obj,
+            "allocated_rows": rows,
+            "allocated_total": allocated_total,
+            "requested_total": requested_total,
+            "is_partial": allocated_total < requested_total,
             "qr_url": reverse("plugin:loan:pickup_qr", args=[pickup.pk]),
         },
     )
@@ -334,18 +379,18 @@ def pickup_return_sheet(request, pk):
             )
             row["quantity"] += allocation.quantity
 
-    for line in request_obj.lines.select_related("part"):
-        outstanding = line.unallocated_quantity
-        if outstanding > 0:
-            rows[f"line-{line.pk}"] = {
-                "stock_item_id": None,
-                "part_name": line.part.name,
-                "ipn": line.part.IPN or "",
-                "asset": "Not allocated",
-                "serial": "",
-                "quantity": outstanding,
-                "allocated": False,
-            }
+    unallocated_rows = []
+    if loan is None:
+        for line in request_obj.lines.select_related("part"):
+            outstanding = line.unallocated_quantity
+            if outstanding > 0:
+                unallocated_rows.append(
+                    {
+                        "part_name": line.part.name,
+                        "ipn": line.part.IPN or "",
+                        "quantity": outstanding,
+                    }
+                )
 
     return render(
         request,
@@ -355,6 +400,7 @@ def pickup_return_sheet(request, pk):
             "request_obj": request_obj,
             "loan": loan,
             "rows": list(rows.values()),
+            "unallocated_rows": unallocated_rows,
             "box_qr_url": reverse("plugin:loan:pickup_qr", args=[pickup.pk]),
         },
     )
