@@ -80,18 +80,26 @@
     </section>
 
     <section class="loan-receipt-signatures">
-        <div>
+        <div class="loan-receipt-signature">
+            <div class="loan-receipt-signature-space">
+                {% if request_obj.signature %}<img class="loan-signature" src="{{ request_obj.signature }}" alt="{% trans 'Requester signature' %}">{% endif %}
+            </div>
             <span>{% trans "Requester signature" %}</span>
-            {% if request_obj.signature %}<img class="loan-signature" src="{{ request_obj.signature }}" alt="{% trans 'Requester signature' %}">{% endif %}
         </div>
-        <div>
+        {% if loan %}
+        <div class="loan-receipt-signature">
+            <div class="loan-receipt-signature-space">
+                {% if loan.signature_checkout %}<img class="loan-signature" src="{{ loan.signature_checkout }}" alt="{% trans 'Handout signature' %}">{% endif %}
+            </div>
             <span>{% trans "Handout signature" %}</span>
-            {% if loan.signature_checkout %}<img class="loan-signature" src="{{ loan.signature_checkout }}" alt="{% trans 'Handout signature' %}">{% endif %}
         </div>
-        <div>
+        <div class="loan-receipt-signature">
+            <div class="loan-receipt-signature-space">
+                {% if loan.signature_return %}<img class="loan-signature" src="{{ loan.signature_return }}" alt="{% trans 'Return signature' %}">{% endif %}
+            </div>
             <span>{% trans "Return signature" %}</span>
-            {% if loan.signature_return %}<img class="loan-signature" src="{{ loan.signature_return }}" alt="{% trans 'Return signature' %}">{% endif %}
         </div>
+        {% endif %}
     </section>
 
     <footer class="loan-receipt-footer">

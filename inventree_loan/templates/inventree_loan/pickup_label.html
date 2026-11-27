@@ -24,6 +24,7 @@
             <h1>{% trans "Pickup box" %}</h1>
             <p class="loan-pickup-ref">{{ pickup.reference }}</p>
             {% if pickup.name %}<p class="loan-pickup-name">{{ pickup.name }}</p>{% endif %}
+            {% if is_partial %}<span class="loan-badge loan-badge-warning loan-pickup-partial">{% trans "Partial allocation" %}</span>{% endif %}
         </div>
         <img class="loan-pickup-qr" src="{{ qr_url }}" alt="{% trans 'Pickup box QR code' %}" width="176" height="176">
     </header>
@@ -38,7 +39,6 @@
         <div>
             <span>{% trans "Allocated" %}</span>
             <strong>{{ allocated_total|floatformat:"-5" }} of {{ requested_total|floatformat:"-5" }} unit{{ requested_total|pluralize }}</strong>
-            {% if is_partial %}<span class="loan-badge loan-badge-warning">{% trans "Partial allocation" %}</span>{% endif %}
         </div>
         <div>
             <span>{% trans "Pickup date" %}</span>
