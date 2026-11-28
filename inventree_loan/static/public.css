@@ -751,6 +751,49 @@ body.loan-external a:hover {
     white-space: nowrap;
 }
 
+.it-stepper {
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid var(--it-border-strong);
+    border-radius: var(--it-radius);
+    background: var(--loan-surface);
+}
+
+.it-stepper-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    min-height: 30px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--it-primary-text);
+    font: inherit;
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.it-stepper-btn:hover:not(:disabled) {
+    background: var(--it-hover);
+}
+
+.it-stepper-btn:disabled {
+    color: var(--it-dim);
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.it-stepper-value {
+    min-width: 26px;
+    color: var(--it-text);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
 .it-link {
     padding: 0;
     border: 0;

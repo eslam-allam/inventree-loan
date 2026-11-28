@@ -568,8 +568,8 @@ body.loan-body {
 .loan-receipt .loan-table th,
 .loan-receipt .loan-table td { border-color: #e2e8f0; }
 .loan-receipt-notes { margin-top: 22px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
-.loan-receipt-signatures { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; margin-top: 36px; }
-.loan-receipt-signature { break-inside: avoid; page-break-inside: avoid; }
+.loan-receipt-signatures { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 220px)); justify-content: start; gap: 24px; margin-top: 36px; }
+.loan-receipt-signature { max-width: 220px; break-inside: avoid; page-break-inside: avoid; }
 .loan-receipt-signature-space { display: flex; align-items: flex-end; min-height: 72px; padding-bottom: 4px; border-bottom: 1px solid #94a3b8; }
 .loan-receipt-signature span { display: block; padding-top: 6px; color: #64748b; font-size: 12px; }
 .loan-receipt-signatures .loan-signature { display: block; max-width: 100%; max-height: 66px; object-fit: contain; background: #fff; }
@@ -591,7 +591,7 @@ body.loan-body {
 .loan-pickup-label h1 { margin: 2px 0 4px; font-size: 30px; letter-spacing: -0.03em; }
 .loan-pickup-ref { margin: 0; font-family: var(--loan-mono); font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
 .loan-pickup-name { margin: 4px 0 0; font-size: 15px; font-weight: 650; color: #334155; }
-.loan-pickup-partial { display: inline-flex; margin-top: 7px; }
+.loan-pickup-partial { display: inline-flex; margin-top: 7px; padding: 3px 7px; border-radius: 2px; }
 .loan-pickup-qr { width: 176px; height: 176px; flex: 0 0 176px; }
 .loan-pickup-request { margin-top: 18px; padding: 12px 14px; border-radius: 8px; background: #f1f5f9; }
 .loan-pickup-request p { margin: 2px 0; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }

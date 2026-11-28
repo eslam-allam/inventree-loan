@@ -513,9 +513,31 @@
             if (event.target === basketDialog) closeBasket();
         });
 
+        const partActionHtml = (part) => {
+            const line = state.lines.find((item) => item.part_id === part.pk);
+            const available = whole(part.available);
+            if (!line) {
+                return `<button class="it-btn it-btn-light it-btn-small" type="button" data-add-part="${part.pk}" aria-label="Add ${esc(part.name)} to request" ${available < 1 ? 'disabled' : ''}>Add</button>`;
+            }
+            return `<div class="it-stepper" role="group" aria-label="Quantity for ${esc(part.name)}">
+                <button class="it-stepper-btn" type="button" data-cart-decrement="${part.pk}" aria-label="Remove one ${esc(part.name)}">−</button>
+                <span class="it-stepper-value" aria-live="polite">${line.quantity}</span>
+                <button class="it-stepper-btn" type="button" data-cart-increment="${part.pk}" aria-label="Add one ${esc(part.name)}" ${line.quantity >= available ? 'disabled' : ''}>+</button>
+            </div>`;
+        };
+
+        const updatePartActions = () => {
+            if (!resultsContainer) return;
+            resultsContainer.querySelectorAll('[data-part-action]').forEach((cell) => {
+                const part = state.parts.get(String(cell.dataset.partAction));
+                if (part) cell.innerHTML = partActionHtml(part);
+            });
+        };
+
         const renderCart = () => {
             $$('[data-cart-count]').forEach((element) => { element.textContent = String(state.lines.length); });
             cartTotal.textContent = String(state.lines.reduce((sum, line) => sum + num(line.quantity), 0));
+            updatePartActions();
             if (!state.lines.length) {
                 cartEmpty.hidden = false;
                 cartWrap.hidden = true;
@@ -702,27 +724,50 @@
                     <td class="it-ellipsis" title="${esc(part.description || '')}">${esc(part.description || '—')}</td>
                     <td>${esc(part.category || '—')}</td>
                     <td class="it-num">${available > 0 ? available.toLocaleString() : '<span class="it-dim">Unavailable</span>'}</td>
-                    <td class="it-actions">
-                        <button class="it-btn it-btn-light it-btn-small" type="button" data-add-part="${part.pk}" aria-label="Add ${esc(part.name)} to request" ${available < 1 ? 'disabled' : ''}>Add</button>
-                    </td>
+                    <td class="it-actions" data-part-action="${part.pk}">${partActionHtml(part)}</td>
                 </tr>`;
             }).join('');
             resultsContainer.querySelectorAll('[data-open-part]').forEach((button) => {
                 button.addEventListener('click', () => openPart(button.dataset.openPart));
             });
-            resultsContainer.querySelectorAll('[data-add-part]').forEach((button) => {
-                button.addEventListener('click', () => {
-                    const part = state.parts.get(String(button.dataset.addPart));
+            renderPager();
+        };
+
+        if (resultsContainer) {
+            resultsContainer.addEventListener('click', (event) => {
+                const addButton = event.target.closest('[data-add-part]');
+                if (addButton) {
+                    const part = state.parts.get(String(addButton.dataset.addPart));
                     if (!part) return;
                     if (part.trackable || part.is_template) {
                         openPart(part.pk, part);
                     } else {
                         addPart(part, 1);
                     }
-                });
+                    return;
+                }
+
+                const incrementButton = event.target.closest('[data-cart-increment]');
+                if (incrementButton) {
+                    const part = state.parts.get(String(incrementButton.dataset.cartIncrement));
+                    if (part) addPart(part, 1);
+                    return;
+                }
+
+                const decrementButton = event.target.closest('[data-cart-decrement]');
+                if (decrementButton) {
+                    const partId = Number(decrementButton.dataset.cartDecrement);
+                    const line = state.lines.find((item) => item.part_id === partId);
+                    if (!line) return;
+                    if (line.quantity > 1) {
+                        line.quantity -= 1;
+                    } else {
+                        state.lines = state.lines.filter((item) => item !== line);
+                    }
+                    renderCart();
+                }
             });
-            renderPager();
-        };
+        }
 
         const loadCatalog = async () => {
             if (!resultsContainer) return;
