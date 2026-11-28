@@ -1797,6 +1797,21 @@ body:has(.basket-drawer[open]) {
     }
 }
 
+@media (max-width: 400px) {
+    .it-catalog-panel .it-table th,
+    .it-catalog-panel .it-table td {
+        padding: 8px;
+    }
+
+    .it-stepper-btn {
+        width: 28px;
+    }
+
+    .it-stepper-value {
+        min-width: 22px;
+    }
+}
+
 .it-catalog-panel .it-table-wrap {
     max-height: calc(100vh - 310px);
     overflow: auto;

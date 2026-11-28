@@ -39,36 +39,38 @@
         {% trans "Keep this sheet with the box. On return, scan each item QR at the loan desk to count the returned items." %}
     </p>
 
-    <table class="loan-table loan-return-sheet-table">
-        <thead>
-            <tr>
-                <th scope="col">{% trans "Return QR" %}</th>
-                <th scope="col">{% trans "Part" %}</th>
-                <th scope="col">{% trans "Asset / serial" %}</th>
-                <th scope="col">{% trans "Quantity" %}</th>
-                <th scope="col">{% trans "Present" %}</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for row in rows %}
-            <tr>
-                <td>
-                    {% if row.stock_item_id %}
-                        <img class="loan-return-item-qr" src="{% url 'plugin:loan:pickup_item_qr' pickup.pk row.stock_item_id %}" alt="{% trans 'Item QR code' %}" width="76" height="76">
-                    {% else %}
-                        <span class="loan-muted">{% trans "No QR" %}</span>
-                    {% endif %}
-                </td>
-                <td><strong>{{ row.part_name }}</strong>{% if row.ipn %}<br><span class="loan-muted">{{ row.ipn }}</span>{% endif %}</td>
-                <td>{{ row.asset }}{% if row.serial %}<br><span class="loan-muted">{{ row.serial }}</span>{% endif %}</td>
-                <td>{{ row.quantity|floatformat:"-5" }}</td>
-                <td><span class="loan-return-checkbox" aria-hidden="true"></span></td>
-            </tr>
-        {% empty %}
-            <tr><td colspan="5">{% trans "No items have been allocated to this box yet." %}</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
+    <div class="loan-return-sheet-table-wrap">
+        <table class="loan-table loan-return-sheet-table">
+            <thead>
+                <tr>
+                    <th scope="col">{% trans "Return QR" %}</th>
+                    <th scope="col">{% trans "Part" %}</th>
+                    <th scope="col">{% trans "Asset / serial" %}</th>
+                    <th scope="col">{% trans "Quantity" %}</th>
+                    <th scope="col">{% trans "Present" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td>
+                        {% if row.stock_item_id %}
+                            <img class="loan-return-item-qr" src="{% url 'plugin:loan:pickup_item_qr' pickup.pk row.stock_item_id %}" alt="{% trans 'Item QR code' %}" width="76" height="76">
+                        {% else %}
+                            <span class="loan-muted">{% trans "No QR" %}</span>
+                        {% endif %}
+                    </td>
+                    <td><strong>{{ row.part_name }}</strong>{% if row.ipn %}<br><span class="loan-muted">{{ row.ipn }}</span>{% endif %}</td>
+                    <td>{{ row.asset }}{% if row.serial %}<br><span class="loan-muted">{{ row.serial }}</span>{% endif %}</td>
+                    <td>{{ row.quantity|floatformat:"-5" }}</td>
+                    <td><span class="loan-return-checkbox" aria-hidden="true"></span></td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5">{% trans "No items have been allocated to this box yet." %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
     {% if unallocated_rows %}
     <section class="loan-return-sheet-warning">

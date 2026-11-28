@@ -655,6 +655,8 @@ body.loan-body {
 
 @media (max-width: 780px) {
     body.loan-body { padding-bottom: 74px; }
+    .loan-receipt-actions { flex-wrap: wrap; justify-content: flex-start; padding: 0 12px; }
+    .loan-receipt-actions .loan-btn { flex: 1 1 auto; }
     .loan-main { padding: 18px 14px 40px; }
     .loan-topbar { position: static; }
     .loan-nav { display: none; }
@@ -689,6 +691,18 @@ body.loan-body {
     .loan-receipt-header { flex-direction: column; }
     .loan-receipt-grid { grid-template-columns: 1fr; }
     .loan-receipt-signatures { margin-top: 36px; }
+}
+
+@media screen and (max-width: 640px) {
+    .loan-pickup-label-head { flex-direction: column; }
+    .loan-pickup-label h1 { font-size: 26px; }
+    .loan-pickup-ref { font-size: 20px; white-space: nowrap; }
+    .loan-pickup-qr { width: 120px; height: 120px; flex-basis: 120px; }
+    .loan-return-sheet { margin: 12px; padding: 18px; }
+    .loan-return-sheet-head { flex-direction: column; }
+    .loan-return-sheet-meta { grid-template-columns: 1fr 1fr; }
+    .loan-return-sheet-table-wrap { overflow-x: auto; }
+    .loan-return-sheet-table { min-width: 520px; }
 }
 
 @media (max-width: 460px) {
